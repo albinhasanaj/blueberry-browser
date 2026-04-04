@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Tab } from "../Tab";
 import type { AgentToolEvent } from "./types";
 import { getContentScriptSource } from "./contentScript";
+import { trace } from "./traceLogger";
 
 type ToolCallRef = { stepIndex: number; callId: string };
 
@@ -133,6 +134,7 @@ export function createBrowserTools(deps: BrowserToolDeps) {
 
           if (results.length === 0) {
             const msg = "No elements found matching the query.";
+            trace("find", "no_results", { query: query as Record<string, unknown> });
             emitToolEvent(
               "find",
               query as Record<string, unknown>,
@@ -146,6 +148,7 @@ export function createBrowserTools(deps: BrowserToolDeps) {
 
           const lines = results.map((r) => `[ref=${r.ref}] ${r.description}`);
           const msg = `Found ${results.length} element(s):\n${lines.join("\n")}`;
+          trace("find", "results", { query: query as Record<string, unknown>, count: results.length, refs: results.map(r => r.ref) });
           emitToolEvent(
             "find",
             query as Record<string, unknown>,
@@ -192,6 +195,7 @@ export function createBrowserTools(deps: BrowserToolDeps) {
         try {
           const tab = getActiveTab();
           await ensureContentScript(tab);
+          const urlBefore = tab.webContents.getURL();
 
           let result: {
             ok: boolean;
@@ -217,7 +221,19 @@ export function createBrowserTools(deps: BrowserToolDeps) {
           }
           const msg = `Clicked <${result.tag}>${result.text ? ` "${result.text}"` : ""}`;
           emitToolEvent("click", input, "completed", msg, undefined, step);
-          return msg + (await autoScreenshot());
+
+          const screenshotSuffix = await autoScreenshot();
+
+          // Detect click-triggered navigation (e.g. clicking a link)
+          // Wait briefly for navigation to start, then check URL
+          await new Promise((r) => setTimeout(r, 300));
+          const urlAfter = tab.webContents.getURL();
+          if (urlAfter !== urlBefore) {
+            trace("click", "triggered_navigation", { from: urlBefore, to: urlAfter });
+            return msg + screenshotSuffix + "\n\u26A0 This click navigated to a new page. All previous refs are now invalid. Use find() or read_page() to get fresh refs before clicking or typing.";
+          }
+
+          return msg + screenshotSuffix;
         } catch (err) {
           const msg = `Error clicking element: ${err instanceof Error ? err.message : String(err)}`;
           emitToolEvent("click", input, "error", undefined, msg, step);
@@ -372,7 +388,8 @@ export function createBrowserTools(deps: BrowserToolDeps) {
           await tab.loadURL(url);
           await loaded;
 
-          const result = `Navigated to ${tab.url} -- page title: "${tab.title}"`;
+          const result = `Navigated to ${tab.url} -- page title: "${tab.title}"\n\u26A0 All previous refs are now invalid. Use find() or read_page() to get fresh refs before clicking or typing.`;
+          trace("navigate", "success", { url, finalUrl: tab.url, title: tab.title });
           emitToolEvent("navigate", { url }, "completed", result, undefined, step);
           return result + (await autoScreenshot());
         } catch (err) {
@@ -497,7 +514,8 @@ export function createBrowserTools(deps: BrowserToolDeps) {
             tab.webContents.once("did-finish-load", onLoad);
           });
 
-          const result = `Opened new tab: ${tab.url} -- title: "${tab.title}"`;
+          const result = `Opened new tab: ${tab.url} -- title: "${tab.title}"\n\u26A0 All previous refs are now invalid. Use find() or read_page() to get fresh refs before clicking or typing.`;
+          trace("open_tab", "success", { url, finalUrl: tab.url, title: tab.title });
           emitToolEvent("open_tab", { url }, "completed", result, undefined, step);
           return result + (await autoScreenshot());
         } catch (err) {

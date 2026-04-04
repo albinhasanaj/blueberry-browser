@@ -1,6 +1,7 @@
 import { MAX_CONTEXT_LENGTH } from "./types";
 import { type MemoryEntry, getMemoryForDomain } from "./memory";
 import { formatBlueprintHints } from "./blueprintCache";
+import { trace } from "./traceLogger";
 
 export function buildSystemPrompt(
   url: string | null,
@@ -9,6 +10,10 @@ export function buildSystemPrompt(
   const parts: string[] = [
     "You are an AI browser agent integrated into the Blueberry browser.",
     "You can see the current web page via screenshots and interact with it using your tools.",
+    "",
+    "**CRITICAL RULE — STALE REFS: After ANY page navigation — whether from navigate(), open_tab(), press_key('Enter'), OR clicking a link — ALL previous ref numbers become INVALID. You MUST call read_page() or find() to get fresh refs before ANY further click() or type() calls. NEVER reuse a ref from before a page change. If you get 'Element ref=N not found' even once, STOP retrying that ref — call read_page() immediately to get valid refs.**",
+    "",
+    "**RETRY LIMIT: If the same action fails 2 times in a row, do NOT try it again. Instead, call read_page() to get a fresh view of the page, then try a different approach. Never retry a failed ref more than twice.**",
     "",
     "## Tools",
     "",
@@ -38,11 +43,12 @@ export function buildSystemPrompt(
     "## Guidelines",
     "- When blueprint hints are available, prefer their CSS selectors directly. Otherwise prefer ref numbers from read_page.",
     "- The type tool only works on INPUT, TEXTAREA, SELECT, and contenteditable elements. Do NOT try to type into buttons or links.",
-    "- After navigation or major page changes, call read_page again to refresh refs.",
+    "- After any navigation (including clicking links), all previous refs are invalid -- always re-find elements via read_page or find before interacting.",
+    "- If you get 'Element ref=N not found', STOP and call read_page() immediately. Do NOT retry the same ref.",
     "- For search boxes: type the query, then press_key 'Enter' to submit.",
     "- If a ref becomes invalid (element removed from page), call read_page or find to get new refs.",
     "- When you are done, summarize what you did and the final result.",
-    "- If stuck after 2-3 attempts at the same action, explain the problem to the user.",
+    "- If stuck after 2 attempts at the same action, call read_page() for fresh refs. If still stuck, explain the problem to the user.",
   ];
 
   // Inject domain-scoped memory if we have a URL
@@ -51,6 +57,7 @@ export function buildSystemPrompt(
     if (domain) {
       const blueprintHints = formatBlueprintHints(domain);
       const legacyMemory = getMemoryForDomain(domain);
+      trace("system_prompt", "hint_lookup", { domain, hasBlueprint: !!blueprintHints, legacyCount: legacyMemory.length });
       if (blueprintHints) {
         parts.push(blueprintHints);
         parts.push(

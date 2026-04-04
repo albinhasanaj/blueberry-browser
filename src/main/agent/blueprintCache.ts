@@ -4,6 +4,7 @@ import {
   recordFailure as dbRecordFailure,
   pruneStale,
 } from "./blueprintDb";
+import { trace } from "./traceLogger";
 
 const HIGH_CONFIDENCE = 0.8;
 
@@ -95,7 +96,10 @@ export function learnFromToolCall(
   resultDescription: string,
 ): void {
   if (!selector || selector.includes("ref=")) return;
-  if (isGarbageSelector(selector)) return;
+  if (isGarbageSelector(selector)) {
+    trace("blueprint", "garbage_rejected", { domain, selector });
+    return;
+  }
 
   const intent = inferIntent(selector, toolName, resultDescription);
   const selectorType = detectSelectorType(selector);
@@ -103,6 +107,7 @@ export function learnFromToolCall(
 
   try {
     upsertBlueprint(domain, intent, selector, selectorType, description);
+    trace("blueprint", "upsert", { domain, intent, selector, selectorType });
   } catch (err) {
     console.error("[Blueprint] Failed to save blueprint:", err);
   }
@@ -121,6 +126,7 @@ export function recordFailure(domain: string, selector: string): void {
   if (!selector || selector.includes("ref=")) return;
   try {
     dbRecordFailure(domain, selector);
+    trace("blueprint", "db_failure_recorded", { domain, selector });
   } catch (err) {
     console.error("[Blueprint] Failed to record failure:", err);
   }
@@ -139,7 +145,8 @@ export function formatBlueprintHints(domain: string): string {
     return "";
   }
   if (rows.length === 0) {
-    console.log("[blueprint]", domain, "no hints yet");
+    console.log("[blueprint] domain:", domain, "| no hints yet");
+    trace("blueprint", "hints_empty", { domain });
     return "";
   }
 
@@ -172,5 +179,6 @@ export function formatBlueprintHints(domain: string): string {
 
   const hints = lines.join("\n");
   console.log("[blueprint]", domain, hints || "no hints yet");
+  trace("blueprint", "hints_formatted", { domain, hintCount: high.length + mid.length, highCount: high.length, midCount: mid.length, selectors: [...high, ...mid].map(r => r.selector) });
   return hints;
 }

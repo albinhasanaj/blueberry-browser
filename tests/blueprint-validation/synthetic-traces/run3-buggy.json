@@ -1,0 +1,24 @@
+{"runId":"run-2026-04-04T14-02-00-000Z-buggy","prompt":"go to youtube, search for funny cats, and open the first video","startedAt":"2026-04-04T13:25:15.766Z","tracePath":"synthetic/run3-buggy.json"}
+{"ts":1775309115766,"elapsed":0,"category":"run","event":"start","data":{"prompt":"go to youtube..."}}
+{"ts":1775309115866,"elapsed":100,"category":"system_prompt","event":"build","data":{"domain":"www.google.com","pageUrl":"https://www.google.com","hasPageText":true,"pageTextLength":5000}}
+{"ts":1775309115867,"elapsed":101,"category":"system_prompt","event":"hint_lookup","data":{"domain":"www.google.com","hasBlueprint":false,"legacyCount":0}}
+{"ts":1775309116266,"elapsed":500,"category":"tool","event":"call","data":{"toolName":"navigate","input":{"url":"https://www.youtube.com"}}}
+{"ts":1775309118766,"elapsed":3000,"category":"navigate","event":"success","data":{"url":"https://www.youtube.com","finalUrl":"https://www.youtube.com/","title":"YouTube"}}
+{"ts":1775309118768,"elapsed":3002,"category":"tool","event":"result","data":{"toolName":"navigate","input":{"url":"https://www.youtube.com"},"output":"Navigated to https://www.youtube.com/ -- page title: \"YouTube\""}}
+{"ts":1775309119266,"elapsed":3500,"category":"tool","event":"call","data":{"toolName":"read_page","input":{}}}
+{"ts":1775309119766,"elapsed":4000,"category":"find","event":"results","data":{"query":{},"count":3,"refs":[1,2,3]}}
+{"ts":1775309119767,"elapsed":4001,"category":"tool","event":"result","data":{"toolName":"read_page","input":{},"output":"[ref=1] <input> [ref=2] <button> [ref=3] <a>"}}
+{"ts":1775309120266,"elapsed":4500,"category":"tool","event":"call","data":{"toolName":"find","input":{"css":"input#search"}}}
+{"ts":1775309120766,"elapsed":5000,"category":"find","event":"no_results","data":{"query":{"css":"input#search"}}}
+{"ts":1775309120767,"elapsed":5001,"category":"tool","event":"result","data":{"toolName":"find","input":{"css":"input#search"},"output":"No elements found matching the query."}}
+{"ts":1775309120768,"elapsed":5002,"category":"blueprint","event":"learn","data":{"domain":"www.youtube.com","selector":"input#search","toolName":"find"}}
+{"ts":1775309121266,"elapsed":5500,"category":"tool","event":"call","data":{"toolName":"type","input":{"ref":1,"text":"funny cats"}}}
+{"ts":1775309121766,"elapsed":6000,"category":"tool","event":"result","data":{"toolName":"type","input":{"ref":1,"text":"funny cats"},"output":"Typed \"funny cats\" into <input>"}}
+{"ts":1775309122266,"elapsed":6500,"category":"tool","event":"call","data":{"toolName":"press_key","input":{"key":"Enter"}}}
+{"ts":1775309122766,"elapsed":7000,"category":"tool","event":"result","data":{"toolName":"press_key","input":{"key":"Enter"},"output":"Pressed \"Enter\" key"}}
+{"ts":1775309123766,"elapsed":8000,"category":"tool","event":"call","data":{"toolName":"navigate","input":{"url":"https://www.youtube.com/results?search_query=funny+cats"}}}
+{"ts":1775309124766,"elapsed":9000,"category":"navigate","event":"success","data":{"url":"https://www.youtube.com/results","finalUrl":"https://www.youtube.com/results?search_query=funny+cats","title":"funny cats - YouTube"}}
+{"ts":1775309124767,"elapsed":9001,"category":"tool","event":"result","data":{"toolName":"navigate","input":{"url":"https://www.youtube.com/results"},"output":"Navigated to https://www.youtube.com/results -- page title: \"funny cats - YouTube\""}}
+{"ts":1775309125266,"elapsed":9500,"category":"tool","event":"call","data":{"toolName":"click","input":{"ref":1}}}
+{"ts":1775309125766,"elapsed":10000,"category":"tool","event":"result","data":{"toolName":"click","input":{"ref":1},"output":"Error: Element ref=1 is a <div>, not clickable"}}
+{"ts":1775309126766,"elapsed":11000,"category":"run","event":"end","data":{"totalEvents":20,"durationMs":11000}}

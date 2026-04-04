@@ -27,7 +27,8 @@ import {
 import { createBrowserTools } from "./agent/browserTools";
 import { buildSystemPrompt } from "./agent/systemPrompt";
 import { recordSuccess } from "./agent/memory";
-import { learnFromToolCall, recordFailure as blueprintRecordFailure } from "./agent/blueprintCache";
+import { learnFromToolCall, recordFailure as blueprintRecordFailure, formatBlueprintHints } from "./agent/blueprintCache";
+import { startTraceRun, trace, endTraceRun } from "./agent/traceLogger";
 
 export class LLMClient {
   private readonly webContents: WebContents;
@@ -66,6 +67,9 @@ export class LLMClient {
     this.abortController = new AbortController();
     this.toolStepIndex = 0;
 
+    startTraceRun(request.message);
+    trace("run", "start", { prompt: request.message, messageId: request.messageId });
+
     try {
       const screenshot = await this.captureScreenshot();
 
@@ -102,6 +106,8 @@ export class LLMClient {
       console.error("Error in LLM request:", error);
       this.handleStreamError(error, request.messageId);
     } finally {
+      trace("run", "finished", { toolSteps: this.toolStepIndex });
+      endTraceRun({ totalToolSteps: this.toolStepIndex });
       this.abortController = null;
     }
   }
@@ -128,8 +134,13 @@ export class LLMClient {
 
   private getCurrentDomain(): string | null {
     try {
-      const url = this.window?.activeTab?.url;
-      return url ? new URL(url).hostname : null;
+      const tab = this.window?.activeTab;
+      const liveUrl = tab?.webContents?.getURL();
+      const cachedUrl = tab?.url;
+      const url = liveUrl || cachedUrl;
+      const domain = url ? new URL(url).hostname : null;
+      trace("domain", "resolve", { liveUrl: liveUrl ?? null, cachedUrl: cachedUrl ?? null, resolved: domain });
+      return domain;
     } catch {
       return null;
     }
@@ -235,13 +246,18 @@ export class LLMClient {
 
     const activeTab = this.window?.activeTab;
     if (activeTab) {
-      pageUrl = activeTab.url;
+      // Use live URL from webContents (agent tab) over cached _url property
+      pageUrl = activeTab.webContents.getURL() || activeTab.url;
       try {
         pageText = await activeTab.getTabText();
       } catch (error) {
         console.error("Failed to get page text:", error);
       }
     }
+
+    const domain = pageUrl ? (() => { try { return new URL(pageUrl!).hostname; } catch { return null; } })() : null;
+    console.log("[blueprint] domain:", domain ?? "none", "| source: active tab");
+    trace("system_prompt", "build", { domain, pageUrl, hasPageText: !!pageText, pageTextLength: pageText?.length ?? 0 });
 
     const systemMessage: CoreMessage = {
       role: "system",
@@ -326,6 +342,7 @@ export class LLMClient {
             `[Agent] Tool call: ${part.toolName}`,
             JSON.stringify(part.input),
           );
+          trace("tool", "call", { toolName: part.toolName, input: part.input as Record<string, unknown> });
           break;
         }
         case "tool-result": {
@@ -338,6 +355,12 @@ export class LLMClient {
           // Record successful selector-based interactions to memory
           this.recordToolMemory(part.toolName, part.input, part.output);
 
+          trace("tool", "result", {
+            toolName: part.toolName,
+            input: part.input as Record<string, unknown>,
+            output: typeof part.output === "string" ? part.output.substring(0, 300) : part.output,
+          });
+
           // Blueprint learning
           const toolOutput = typeof part.output === "string" ? part.output : "";
           const toolInput = part.input as Record<string, unknown>;
@@ -345,12 +368,38 @@ export class LLMClient {
             (toolInput.selector as string | undefined) ||
             (toolInput.css as string | undefined);
           const bpDomain = this.getCurrentDomain();
-          const isSuccess = !toolOutput.startsWith("Error") && !toolOutput.startsWith("Failed");
+          const isSuccess =
+            !toolOutput.startsWith("Error") &&
+            !toolOutput.startsWith("Failed") &&
+            !toolOutput.includes("No elements found") &&
+            !toolOutput.includes("is not a typeable field") &&
+            !toolOutput.includes("is not clickable") &&
+            !toolOutput.includes("not found or removed from page");
           if (bpDomain && bpSelector) {
             if (isSuccess) {
+              trace("blueprint", "learn", { domain: bpDomain, selector: bpSelector, toolName: part.toolName });
               learnFromToolCall(bpDomain, bpSelector, part.toolName, toolOutput);
             } else {
+              trace("blueprint", "failure_recorded", { domain: bpDomain, selector: bpSelector, toolName: part.toolName, reason: toolOutput.substring(0, 150) });
               blueprintRecordFailure(bpDomain, bpSelector);
+            }
+          }
+
+          // Mid-task blueprint hint injection after navigation
+          if (
+            (part.toolName === "navigate" || part.toolName === "open_tab") &&
+            !toolOutput.startsWith("Error")
+          ) {
+            const navDomain = this.getCurrentDomain();
+            if (navDomain) {
+              const hints = formatBlueprintHints(navDomain);
+              if (hints) {
+                console.log("[blueprint] mid-task inject for", navDomain);
+                trace("blueprint", "mid_task_inject", { domain: navDomain, hintsLength: hints.length });
+                this.messages.push({ role: "system", content: hints });
+              } else {
+                trace("blueprint", "mid_task_no_hints", { domain: navDomain });
+              }
             }
           }
           break;

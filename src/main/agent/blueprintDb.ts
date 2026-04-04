@@ -46,6 +46,12 @@ export function initDb(dbPath?: string): Database.Database {
   db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.exec(SCHEMA_SQL);
+
+  // One-time cleanup: remove known bad selectors from before fix deployment
+  try {
+    db.prepare(`DELETE FROM blueprints WHERE selector = 'input#search' AND domain = 'www.youtube.com'`).run();
+  } catch { /* ignore if table is empty */ }
+
   return db;
 }
 
