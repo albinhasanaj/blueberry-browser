@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { ArrowLeft, ArrowRight, RefreshCw, Loader2, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RefreshCw, Loader2, MessageCircle } from 'lucide-react'
 import { useBrowser } from '../contexts/BrowserContext'
 import { ToolBarButton } from '../components/ToolBarButton'
 import { Favicon } from '../components/Favicon'
@@ -16,7 +16,7 @@ export const AddressBar: React.FC = () => {
     // Update URL when active tab changes
     useEffect(() => {
         if (activeTab && !isEditing) {
-            setUrl(activeTab.url || '')
+            setUrl(activeTab.kind === 'chat' ? '' : (activeTab.url || ''))
         }
     }, [activeTab, isEditing])
 
@@ -53,7 +53,7 @@ export const AddressBar: React.FC = () => {
         setIsFocused(false)
         // Reset to current tab URL if editing was cancelled
         if (activeTab) {
-            setUrl(activeTab.url || '')
+            setUrl(activeTab.kind === 'chat' ? '' : (activeTab.url || ''))
         }
     }
 
@@ -62,18 +62,19 @@ export const AddressBar: React.FC = () => {
             setIsEditing(false)
             setIsFocused(false)
             if (activeTab) {
-                setUrl(activeTab.url || '')
+                setUrl(activeTab.kind === 'chat' ? '' : (activeTab.url || ''))
             }
             ; (e.target as HTMLInputElement).blur()
         }
     }
 
-    const canGoBack = activeTab !== null
-    const canGoForward = activeTab !== null
+    const canGoBack = activeTab?.kind === 'web'
+    const canGoForward = activeTab?.kind === 'web'
 
     // Extract domain and title for display
     const getDomain = () => {
         if (!activeTab?.url) return ''
+        if (activeTab.kind === 'chat') return activeTab.title || 'Blueberry'
         try {
             const urlObj = new URL(activeTab.url)
             return urlObj.hostname.replace('www.', '')
@@ -84,6 +85,7 @@ export const AddressBar: React.FC = () => {
 
     const getPath = () => {
         if (!activeTab?.url) return ''
+        if (activeTab.kind === 'chat') return ''
         try {
             const urlObj = new URL(activeTab.url)
             return urlObj.pathname + urlObj.search + urlObj.hash
@@ -94,6 +96,7 @@ export const AddressBar: React.FC = () => {
 
     const getFavicon = () => {
         if (!activeTab?.url) return null
+        if (activeTab.kind === 'chat') return null
         try {
             const domain = new URL(activeTab.url).hostname
             return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
@@ -126,7 +129,7 @@ export const AddressBar: React.FC = () => {
                 />
                 <ToolBarButton
                     onClick={reload}
-                    active={activeTab !== null && !isLoading}
+                    active={activeTab?.kind === 'web' && !isLoading}
                 >
                     {isLoading ? (
                         <Loader2 className="size-4.5 animate-spin" />
@@ -176,15 +179,19 @@ export const AddressBar: React.FC = () => {
                         {/* URL Display */}
                         <div className="text-[0.8rem] leading-normal truncate flex-1">
                             {activeTab ? (
-                                <>
-                                    <span className="text-foreground dark:text-foreground">{getDomain()}</span>
-                                    <span className="group-hover/address-bar:hidden text-muted-foreground/60">
-                                        {activeTab.title && ` / ${activeTab.title}`}
-                                    </span>
-                                    <span className="group-hover/address-bar:inline hidden text-muted-foreground/60">
-                                        {getPath()}
-                                    </span>
-                                </>
+                                activeTab.kind === 'chat' ? (
+                                    <span className="text-foreground dark:text-foreground">{activeTab.title}</span>
+                                ) : (
+                                    <>
+                                        <span className="text-foreground dark:text-foreground">{getDomain()}</span>
+                                        <span className="group-hover/address-bar:hidden text-muted-foreground/60">
+                                            {activeTab.title && ` / ${activeTab.title}`}
+                                        </span>
+                                        <span className="group-hover/address-bar:inline hidden text-muted-foreground/60">
+                                            {getPath()}
+                                        </span>
+                                    </>
+                                )
                             ) : (
                                 <span className="text-muted-foreground">No active tab</span>
                             )}
@@ -197,11 +204,19 @@ export const AddressBar: React.FC = () => {
             {/* Actions Menu */}
             <div className="flex items-center gap-1 app-region-no-drag">
                 <DarkModeToggle />
-                <ToolBarButton
-                    Icon={isSidebarOpen ? PanelLeftClose : PanelLeft}
+                <button
                     onClick={toggleSidebar}
-                    toggled={isSidebarOpen}
-                />
+                    className={cn(
+                        "flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium",
+                        "app-region-no-drag transition-all duration-200",
+                        isSidebarOpen
+                            ? "bg-muted text-foreground"
+                            : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                    )}
+                >
+                    <MessageCircle className="size-4" />
+                    Chat
+                </button>
             </div>
         </>
     )

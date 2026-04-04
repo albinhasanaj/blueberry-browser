@@ -1,3 +1,8 @@
+import type { CoreMessage } from "ai";
+import type { CompanionEvent } from "./companions/types";
+
+export type { CompanionEvent };
+
 export interface ChatRequest {
   message: string;
   messageId: string;
@@ -16,6 +21,44 @@ export interface AgentToolEvent {
   error?: string;
   stepIndex: number;
   callId: string;
+  turnIndex?: number;
+}
+
+export interface ChatSourcePage {
+  tabId: string | null;
+  url: string;
+  title: string;
+  text: string | null;
+}
+
+export interface ChatLatestRun {
+  status: "idle" | "running" | "completed" | "error";
+  taskTitle: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  stepCount: number;
+  completedStepCount: number;
+  errorCount: number;
+}
+
+export interface ChatHistoryEntry {
+  sessionId: string;
+  title: string;
+  preview: string | null;
+  updatedAt: number;
+}
+
+export interface ChatSessionState {
+  sessionId: string;
+  sourcePage: ChatSourcePage | null;
+  messages: CoreMessage[];
+  toolEvents: AgentToolEvent[];
+  companionEvents: CompanionEvent[];
+  latestRun: ChatLatestRun;
+  sessionTitle: string;
+  currentWorkTabId: string | null;
+  agentTabIds: string[];
+  history: ChatHistoryEntry[];
 }
 
 export type LLMProvider = "openai" | "anthropic";

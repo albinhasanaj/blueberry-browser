@@ -1,46 +1,148 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
-  useCallback,
 } from "react";
+import type { AgentToolEvent, Message } from "@common/components/chat/types";
 
-interface Message {
-  id: string;
-  role: "user" | "assistant";
+interface CompanionEvent {
+  type: "companion:message" | "companion:thinking" | "companion:done";
+  fromId: string;
+  fromName: string;
+  fromEmoji: string;
+  toId?: string;
+  toName?: string;
   content: string;
   timestamp: number;
-  isStreaming?: boolean;
+  isFinal?: boolean;
+  turnIndex?: number;
 }
 
-interface AgentToolEvent {
-  toolName: string;
-  input: Record<string, unknown>;
-  status: "started" | "completed" | "error";
-  result?: string;
-  error?: string;
-  stepIndex: number;
-  callId: string;
+interface SourcePage {
+  tabId: string | null;
+  url: string;
+  title: string;
+  text: string | null;
+}
+
+interface LatestRun {
+  status: "idle" | "running" | "completed" | "error";
+  taskTitle: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  stepCount: number;
+  completedStepCount: number;
+  errorCount: number;
+}
+
+interface ChatHistoryEntry {
+  sessionId: string;
+  title: string;
+  preview: string | null;
+  updatedAt: number;
+}
+
+interface ChatSessionState {
+  sessionId: string;
+  sourcePage: SourcePage | null;
+  messages: unknown[];
+  toolEvents: AgentToolEvent[];
+  companionEvents: CompanionEvent[];
+  latestRun: LatestRun;
+  sessionTitle: string;
+  currentWorkTabId: string | null;
+  agentTabIds: string[];
+  history: ChatHistoryEntry[];
 }
 
 interface ChatContextType {
+  sessionId: string;
   messages: Message[];
   isLoading: boolean;
   toolEvents: AgentToolEvent[];
+  companionEvents: CompanionEvent[];
+  sourcePage: SourcePage | null;
+  latestRun: LatestRun;
+  sessionTitle: string;
+  currentWorkTabId: string | null;
+  agentTabIds: string[];
+  history: ChatHistoryEntry[];
 
-  // Chat actions
   sendMessage: (content: string) => Promise<void>;
   clearChat: () => void;
   stopAgent: () => void;
-
-  // Page content access
+  openSession: (sessionId: string) => Promise<void>;
   getPageContent: () => Promise<string | null>;
   getPageText: () => Promise<string | null>;
   getCurrentUrl: () => Promise<string | null>;
 }
 
+const EMPTY_RUN: LatestRun = {
+  status: "idle",
+  taskTitle: null,
+  startedAt: null,
+  finishedAt: null,
+  stepCount: 0,
+  completedStepCount: 0,
+  errorCount: 0,
+};
+
 const ChatContext = createContext<ChatContextType | null>(null);
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .filter(
+      (part): part is { type: string; text?: string } =>
+        typeof part === "object" && part !== null && "type" in part,
+    )
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text ?? "")
+    .join("\n");
+}
+
+function convertMessages(messages: unknown[], isLoading: boolean): Message[] {
+  const filtered = messages.filter(
+    (msg): msg is { role: "user" | "assistant"; content: unknown } =>
+      typeof msg === "object" &&
+      msg !== null &&
+      "role" in msg &&
+      "content" in msg &&
+      (msg.role === "user" || msg.role === "assistant"),
+  );
+
+  return filtered.map((msg, index) => {
+    const isLastAssistant =
+      msg.role === "assistant" &&
+      index === filtered.length - 1 &&
+      isLoading;
+
+    return {
+      id: `msg-${index}`,
+      role: msg.role,
+      content: extractTextContent(msg.content),
+      timestamp: Date.now(),
+      isStreaming: isLastAssistant,
+    };
+  });
+}
+
+const DEFAULT_STATE: ChatSessionState = {
+  sessionId: "unknown-session",
+  sourcePage: null,
+  messages: [],
+  toolEvents: [],
+  companionEvents: [],
+  latestRun: EMPTY_RUN,
+  sessionTitle: "Untitled",
+  currentWorkTabId: null,
+  agentTabIds: [],
+  history: [],
+};
 
 export const useChat = () => {
   const context = useContext(ChatContext);
@@ -53,64 +155,39 @@ export const useChat = () => {
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [toolEvents, setToolEvents] = useState<AgentToolEvent[]>([]);
+  const [sessionState, setSessionState] =
+    useState<ChatSessionState>(DEFAULT_STATE);
 
-  // Load initial messages from main process
+  const isLoading = sessionState.latestRun.status === "running";
+  const messages = convertMessages(sessionState.messages, isLoading);
+
   useEffect(() => {
-    const loadMessages = async () => {
+    const loadSession = async () => {
       try {
-        const storedMessages = await window.sidebarAPI.getMessages();
-        if (storedMessages && storedMessages.length > 0) {
-          // Convert CoreMessage format to our frontend Message format
-          const convertedMessages = storedMessages.map(
-            (msg: any, index: number) => ({
-              id: `msg-${index}`,
-              role: msg.role,
-              content:
-                typeof msg.content === "string"
-                  ? msg.content
-                  : msg.content.find((p: any) => p.type === "text")?.text || "",
-              timestamp: Date.now(),
-              isStreaming: false,
-            }),
-          );
-          setMessages(convertedMessages);
-        }
+        const initialState = await window.sidebarAPI.getChatSessionState();
+        setSessionState(initialState);
       } catch (error) {
-        console.error("Failed to load messages:", error);
+        console.error("Failed to load chat session:", error);
       }
     };
-    loadMessages();
+
+    loadSession();
   }, []);
 
   const sendMessage = useCallback(async (content: string) => {
-    setIsLoading(true);
-    setToolEvents([]);
-
     try {
-      const messageId = Date.now().toString();
-
-      // Send message to main process (which will handle context)
       await window.sidebarAPI.sendChatMessage({
         message: content,
-        messageId: messageId,
+        messageId: Date.now().toString(),
       });
-
-      // Messages will be updated via the chat-messages-updated event
     } catch (error) {
       console.error("Failed to send message:", error);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
   const clearChat = useCallback(async () => {
     try {
       await window.sidebarAPI.clearChat();
-      setMessages([]);
-      setToolEvents([]);
     } catch (error) {
       console.error("Failed to clear chat:", error);
     }
@@ -119,9 +196,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   const stopAgent = useCallback(async () => {
     try {
       await window.sidebarAPI.stopAgent();
-      setIsLoading(false);
     } catch (error) {
       console.error("Failed to stop agent:", error);
+    }
+  }, []);
+
+  const openSession = useCallback(async (sessionId: string) => {
+    try {
+      await window.sidebarAPI.openChatSession(sessionId);
+    } catch (error) {
+      console.error("Failed to open chat session:", error);
     }
   }, []);
 
@@ -152,68 +236,34 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  // Set up message listeners
   useEffect(() => {
-    // Listen for streaming response updates
-    const handleChatResponse = (data: {
-      messageId: string;
-      content: string;
-      isComplete: boolean;
-    }) => {
-      if (data.isComplete) {
-        setIsLoading(false);
-      }
+    const handleSessionUpdated = (updatedState: ChatSessionState) => {
+      setSessionState(updatedState);
     };
 
-    // Listen for message updates from main process
-    const handleMessagesUpdated = (updatedMessages: any[]) => {
-      // Convert CoreMessage format to our frontend Message format
-      const convertedMessages = updatedMessages.map(
-        (msg: any, index: number) => ({
-          id: `msg-${index}`,
-          role: msg.role,
-          content:
-            typeof msg.content === "string"
-              ? msg.content
-              : msg.content.find((p: any) => p.type === "text")?.text || "",
-          timestamp: Date.now(),
-          isStreaming: false,
-        }),
-      );
-      setMessages(convertedMessages);
-    };
-
-    window.sidebarAPI.onChatResponse(handleChatResponse);
-    window.sidebarAPI.onMessagesUpdated(handleMessagesUpdated);
-
-    // Listen for agent tool events
-    window.sidebarAPI.onAgentToolEvent((event: AgentToolEvent) => {
-      setToolEvents((prev) => {
-        // Update existing event by unique callId, or append new one
-        const idx = prev.findIndex((e) => e.callId === event.callId);
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = event;
-          return updated;
-        }
-        return [...prev, event];
-      });
-    });
+    window.sidebarAPI.onChatSessionUpdated(handleSessionUpdated);
 
     return () => {
-      window.sidebarAPI.removeChatResponseListener();
-      window.sidebarAPI.removeMessagesUpdatedListener();
-      window.sidebarAPI.removeAgentToolEventListener();
+      window.sidebarAPI.removeChatSessionUpdatedListener();
     };
   }, []);
 
   const value: ChatContextType = {
+    sessionId: sessionState.sessionId,
     messages,
     isLoading,
-    toolEvents,
+    toolEvents: sessionState.toolEvents,
+    companionEvents: sessionState.companionEvents ?? [],
+    sourcePage: sessionState.sourcePage,
+    latestRun: sessionState.latestRun,
+    sessionTitle: sessionState.sessionTitle,
+    currentWorkTabId: sessionState.currentWorkTabId,
+    agentTabIds: sessionState.agentTabIds,
+    history: sessionState.history,
     sendMessage,
     clearChat,
     stopAgent,
+    openSession,
     getPageContent,
     getPageText,
     getCurrentUrl,

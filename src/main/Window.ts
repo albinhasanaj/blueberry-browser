@@ -1,8 +1,14 @@
 import { BaseWindow, nativeImage } from "electron";
 import { join } from "path";
-import { Tab } from "./Tab";
+import { Tab, type TabOptions } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
+import { DEFAULT_WINDOW_TITLE, getTabBounds } from "./layout";
+
+export interface CreateTabOptions extends TabOptions {
+  activate?: boolean;
+  sessionId?: string;
+}
 
 export class Window {
   private _baseWindow: BaseWindow;
@@ -83,39 +89,52 @@ export class Window {
   }
 
   // Tab management methods
-  createTab(url?: string): Tab {
+  createTab(input?: string | CreateTabOptions): Tab {
+    const options = this.normalizeCreateTabOptions(input);
     const tabId = `tab-${++this.tabCounter}`;
-    const tab = new Tab(tabId, url);
+    const tab = new Tab(tabId, {
+      kind: options.kind,
+      url: options.url,
+      isAgentControlled: options.isAgentControlled,
+    });
 
     // Add the tab's WebContentsView to the window
     this._baseWindow.contentView.addChildView(tab.view);
 
-    // Set the bounds to fill the window below the topbar and to the left of sidebar
-    const bounds = this._baseWindow.getBounds();
-    tab.view.setBounds({
-      x: 0,
-      y: 88, // Start below the topbar
-      width: bounds.width - 400, // Subtract sidebar width
-      height: bounds.height - 88, // Subtract topbar height
-    });
+    tab.view.setBounds(
+      getTabBounds(this._baseWindow.getBounds(), this._sideBar.getIsVisible()),
+    );
 
     // Store the tab
     this.tabsMap.set(tabId, tab);
 
+    if (tab.isNewTab) {
+      this._sideBar.client.attachChatTab(tab, options.sessionId);
+    }
+
+    // Handle view swap when newtab transitions to web mode
+    tab.onViewSwapped = (oldView, newView) => {
+      this._baseWindow.contentView.removeChildView(oldView);
+      this._baseWindow.contentView.addChildView(newView);
+
+      this._sideBar.client.detachChatTab(tab.id, oldView.webContents);
+
+      // Set up window open handler on the new web view
+      newView.webContents.setWindowOpenHandler((details) => {
+        this.createTab(details.url);
+        return { action: "deny" };
+      });
+    };
+
     // Open links that would create new windows in a new Blueberry tab instead
     tab.webContents.setWindowOpenHandler((details) => {
       this.createTab(details.url);
-      this.switchActiveTab(
-        Array.from(this.tabsMap.keys()).pop()!,
-      );
       return { action: "deny" };
     });
 
-    // If this is the first tab, make it active
-    if (this.tabsMap.size === 1) {
+    if (options.activate ?? true) {
       this.switchActiveTab(tabId);
     } else {
-      // Hide the tab initially if it's not the first one
       tab.hide();
     }
 
@@ -128,6 +147,10 @@ export class Window {
       return false;
     }
 
+    if (tab.isNewTab) {
+      this._sideBar.client.detachChatTab(tab.id, tab.webContents);
+    }
+
     // Remove the WebContentsView from the window
     this._baseWindow.contentView.removeChildView(tab.view);
 
@@ -136,6 +159,7 @@ export class Window {
 
     // Remove from our tabs map
     this.tabsMap.delete(tabId);
+    this._sideBar.client.onTabClosed(tabId);
 
     // If this was the active tab, switch to another tab
     if (this.activeTabId === tabId) {
@@ -173,7 +197,8 @@ export class Window {
     this.activeTabId = tabId;
 
     // Update the window title to match the tab title
-    this._baseWindow.setTitle(tab.title || "Blueberry Browser");
+    this.refreshWindowTitle();
+    this._sideBar.client.handleTabActivated(tab);
 
     return true;
   }
@@ -234,17 +259,13 @@ export class Window {
 
   // Handle window resize to update tab bounds
   private updateTabBounds(): void {
-    const bounds = this._baseWindow.getBounds();
-    // Only subtract sidebar width if it's visible
-    const sidebarWidth = this._sideBar.getIsVisible() ? 400 : 0;
+    const tabBounds = getTabBounds(
+      this._baseWindow.getBounds(),
+      this._sideBar.getIsVisible(),
+    );
 
     this.tabsMap.forEach((tab) => {
-      tab.view.setBounds({
-        x: 0,
-        y: 88, // Start below the topbar
-        width: bounds.width - sidebarWidth,
-        height: bounds.height - 88, // Subtract topbar height
-      });
+      tab.view.setBounds(tabBounds);
     });
   }
 
@@ -272,5 +293,44 @@ export class Window {
   // Getter for baseWindow to access from Menu
   get baseWindow(): BaseWindow {
     return this._baseWindow;
+  }
+
+  setTabAgentControlled(tabId: string, isAgentControlled: boolean): void {
+    const tab = this.tabsMap.get(tabId);
+    if (!tab) return;
+    tab.setAgentControlled(isAgentControlled);
+  }
+
+  setTabTitle(tabId: string, title: string): void {
+    const tab = this.tabsMap.get(tabId);
+    if (!tab) return;
+    tab.setTitle(title);
+    if (this.activeTabId === tabId) {
+      this.refreshWindowTitle();
+    }
+  }
+
+  private refreshWindowTitle(): void {
+    this._baseWindow.setTitle(this.activeTab?.title || DEFAULT_WINDOW_TITLE);
+  }
+
+  private normalizeCreateTabOptions(
+    input?: string | CreateTabOptions,
+  ): CreateTabOptions {
+    if (typeof input === "string") {
+      return {
+        kind: "web",
+        url: input,
+        activate: true,
+      };
+    }
+
+    return {
+      kind: input?.kind ?? "chat",
+      url: input?.url,
+      isAgentControlled: input?.isAgentControlled ?? false,
+      activate: input?.activate ?? true,
+      sessionId: input?.sessionId,
+    };
   }
 }

@@ -10,6 +10,7 @@ interface TabItemProps {
     title: string
     favicon?: string | null
     isActive: boolean
+    isAgentControlled: boolean
     isPinned?: boolean
     onClose: () => void
     onActivate: () => void
@@ -19,18 +20,20 @@ const TabItem: React.FC<TabItemProps> = ({
     title,
     favicon,
     isActive,
+    isAgentControlled,
     isPinned = false,
     onClose,
     onActivate
 }) => {
     const baseClassName = cn(
-        "relative flex items-center h-8 pl-2 pr-1.5 select-none rounded-md",
-        "text-primary group/tab transition-all duration-200 cursor-pointer",
-        "app-region-no-drag", // Make tabs clickable
+        "relative flex items-center h-7 pl-2.5 pr-1.5 select-none rounded-full",
+        "text-primary group/tab transition-all duration-200 cursor-pointer text-[11px]",
+        "app-region-no-drag",
         isActive
-            ? "bg-background shadow-tab dark:bg-secondary dark:shadow-none"
+            ? "bg-background shadow-tab dark:bg-secondary"
             : "bg-transparent hover:bg-muted/50 dark:hover:bg-muted/30",
-        isPinned ? "w-8 !px-0 justify-center" : ""
+        isAgentControlled && "ring-1 ring-sky-400/70 ring-inset",
+        isPinned ? "w-7 !px-0 justify-center" : ""
     )
 
     return (
@@ -59,13 +62,13 @@ const TabItem: React.FC<TabItemProps> = ({
                             onClose()
                         }}
                         className={cn(
-                            "flex-shrink-0 p-1 rounded-md transition-opacity",
+                            "flex-shrink-0 p-0.5 rounded-full transition-opacity ml-1",
                             "hover:bg-muted dark:hover:bg-muted/50",
                             "opacity-0 group-hover/tab:opacity-100",
                             isActive && "opacity-100"
                         )}
                     >
-                        <X className="size-3 text-primary dark:text-primary" />
+                        <X className="size-2.5 text-muted-foreground" />
                     </div>
                 )}
             </div>
@@ -74,10 +77,10 @@ const TabItem: React.FC<TabItemProps> = ({
 }
 
 export const TabBar: React.FC = () => {
-    const { tabs, createTab, closeTab, switchTab, isLoading } = useBrowser()
+    const { tabs, createTab, closeTab, switchTab } = useBrowser()
 
     const handleCreateTab = () => {
-        createTab('https://www.google.com')
+        createTab()
     }
 
     // Extract favicon from URL (simplified - you might want to improve this)
@@ -91,12 +94,12 @@ export const TabBar: React.FC = () => {
     }
 
     return (
-        <div className="flex-1 overflow-x-hidden flex items-center">
+        <div className="flex-1 overflow-x-hidden flex items-center justify-center">
             {/* macOS traffic lights spacing */}
             <div className="pl-20" />
 
-            {/* Tabs */}
-            <div className="flex-1 overflow-x-auto flex">
+            {/* Tabs - centered pill container */}
+            <div className="flex items-center bg-muted/60 dark:bg-muted/40 rounded-full px-1 py-0.5 gap-0.5">
                 {tabs.map(tab => (
                     <TabItem
                         key={tab.id}
@@ -104,20 +107,20 @@ export const TabBar: React.FC = () => {
                         title={tab.title}
                         favicon={getFavicon(tab.url)}
                         isActive={tab.isActive}
+                        isAgentControlled={tab.isAgentControlled}
                         onClose={() => closeTab(tab.id)}
                         onActivate={() => switchTab(tab.id)}
                     />
                 ))}
-            </div>
 
-            {/* Add Tab Button */}
-            <div className="pl-1 pr-2">
+                {/* Add Tab Button inside pill */}
                 <TabBarButton
                     Icon={Plus}
                     onClick={handleCreateTab}
                 />
             </div>
+
+            <div className="flex-1" />
         </div>
     )
 }
-

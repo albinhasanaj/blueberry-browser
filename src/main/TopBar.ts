@@ -1,6 +1,7 @@
 import { is } from "@electron-toolkit/utils";
 import { BaseWindow, WebContentsView } from "electron";
 import { join } from "path";
+import { getTopBarBounds } from "./layout";
 
 export class TopBar {
   private webContentsView: WebContentsView;
@@ -41,13 +42,7 @@ export class TopBar {
   }
 
   private setupBounds(): void {
-    const bounds = this.baseWindow.getBounds();
-    this.webContentsView.setBounds({
-      x: 0,
-      y: 0,
-      width: bounds.width,
-      height: 88, // Fixed height for topbar (40px tabs + 48px address bar)
-    });
+    this.webContentsView.setBounds(getTopBarBounds(this.baseWindow.getBounds()));
   }
 
   updateBounds(): void {

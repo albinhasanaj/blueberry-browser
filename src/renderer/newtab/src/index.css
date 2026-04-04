@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light mode */
+    --background: 255 255 255;
+    --foreground: 20 20 20;
+    --card: 255 255 255;
+    --card-foreground: 20 20 20;
+    --popover: 255 255 255;
+    --popover-foreground: 20 20 20;
+    --primary: 30 30 30;
+    --primary-foreground: 250 250 250;
+    --secondary: 245 245 245;
+    --secondary-foreground: 30 30 30;
+    --muted: 245 245 245;
+    --muted-foreground: 115 115 115;
+    --accent: 245 245 245;
+    --accent-foreground: 30 30 30;
+    --destructive: 239 68 68;
+    --destructive-foreground: 250 250 250;
+    --border: 229 229 229;
+    --input: 229 229 229;
+    --ring: 161 161 161;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    /* New tab dark theme */
+    --background: 52 51 50;
+    --foreground: 245 239 231;
+    --card: 61 60 58;
+    --card-foreground: 245 239 231;
+    --popover: 61 60 58;
+    --popover-foreground: 245 239 231;
+    --primary: 177 215 111;
+    --primary-foreground: 29 37 17;
+    --secondary: 67 66 64;
+    --secondary-foreground: 245 239 231;
+    --muted: 63 62 60;
+    --muted-foreground: 179 171 163;
+    --accent: 71 70 68;
+    --accent-foreground: 245 239 231;
+    --destructive: 220 38 38;
+    --destructive-foreground: 250 250 250;
+    --border: 80 79 77;
+    --input: 80 79 77;
+    --ring: 144 182 90;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+@layer base {
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    @apply bg-background text-foreground;
+    height: 100vh;
+    overflow: hidden;
+  }
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #333;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}

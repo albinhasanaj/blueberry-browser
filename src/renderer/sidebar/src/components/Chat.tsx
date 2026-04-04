@@ -1,375 +1,206 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
-import { ArrowUp, Square, Sparkles, Plus } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { Clock3, Plus, X } from "lucide-react";
 import { useChat } from "../contexts/ChatContext";
+import { AssistantMessage, BlueberryMascot } from "@common/components/chat";
 import { cn } from "@common/lib/utils";
-import { Button } from "@common/components/Button";
-import { AgentStepFeed } from "./AgentStepFeed";
 
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-  isStreaming?: boolean;
+function formatHistoryTimestamp(updatedAt: number): string {
+  const diffMinutes = Math.max(0, Math.round((Date.now() - updatedAt) / 60000));
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays}d ago`;
 }
 
-// Auto-scroll hook
-const useAutoScroll = (messages: Message[]) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const prevCount = useRef(0);
+const SidebarComposer: React.FC<{
+  disabled: boolean;
+  onSend: (message: string) => Promise<void>;
+}> = ({ disabled, onSend }) => {
+  const [value, setValue] = useState("");
 
-  useLayoutEffect(() => {
-    if (messages.length > prevCount.current) {
-      setTimeout(() => {
-        scrollRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "end",
-        });
-      }, 100);
-    }
-    prevCount.current = messages.length;
-  }, [messages.length]);
+  const submit = async () => {
+    const trimmed = value.trim();
+    if (!trimmed || disabled) return;
+    await onSend(trimmed);
+    setValue("");
+  };
 
-  return scrollRef;
-};
+  return (
+    <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+      <textarea
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void submit();
+          }
+        }}
+        placeholder="Ask a follow-up..."
+        rows={1}
+        className="min-h-[24px] w-full resize-none bg-transparent text-sm leading-6 text-white outline-none placeholder:text-white/22"
+      />
 
-// User Message Component - appears on the right
-const UserMessage: React.FC<{ content: string }> = ({ content }) => (
-  <div className="relative max-w-[85%] ml-auto animate-fade-in">
-    <div className="bg-muted dark:bg-muted/50 rounded-3xl px-6 py-4">
-      <div className="text-foreground" style={{ whiteSpace: "pre-wrap" }}>
-        {content}
+      <div className="mt-4 flex items-center justify-between">
+        <button
+          type="button"
+          className="flex size-8 items-center justify-center rounded-full text-white/75 transition-colors hover:bg-white/[0.06]"
+        >
+          <Plus className="size-4" />
+        </button>
+
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-lime-300">Smart</div>
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-full bg-black/20 text-white/75"
+          >
+            <BlueberryMascot className="size-4.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={disabled || !value.trim()}
+            className="flex size-8 items-center justify-center rounded-full bg-lime-400 text-[#1f2d12] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Plus className="size-4 rotate-45" />
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-);
-
-// Streaming Text Component
-const StreamingText: React.FC<{ content: string }> = ({ content }) => {
-  const [displayedContent, setDisplayedContent] = useState("");
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  useEffect(() => {
-    if (currentIndex < content.length) {
-      const timer = setTimeout(() => {
-        setDisplayedContent(content.slice(0, currentIndex + 1));
-        setCurrentIndex(currentIndex + 1);
-      }, 10);
-      return () => clearTimeout(timer);
-    }
-  }, [content, currentIndex]);
-
-  return (
-    <div className="whitespace-pre-wrap text-foreground">
-      {displayedContent}
-      {currentIndex < content.length && (
-        <span className="inline-block w-2 h-5 bg-primary/60 dark:bg-primary/40 ml-0.5 animate-pulse" />
-      )}
-    </div>
   );
 };
 
-// Markdown Renderer Component
-const Markdown: React.FC<{ content: string }> = ({ content }) => (
-  <div
-    className="prose prose-sm dark:prose-invert max-w-none 
-                    prose-headings:text-foreground prose-p:text-foreground 
-                    prose-strong:text-foreground prose-ul:text-foreground 
-                    prose-ol:text-foreground prose-li:text-foreground
-                    prose-a:text-primary hover:prose-a:underline
-                    prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 
-                    prose-code:rounded prose-code:text-sm prose-code:text-foreground
-                    prose-pre:bg-muted dark:prose-pre:bg-muted/50 prose-pre:p-3 
-                    prose-pre:rounded-lg prose-pre:overflow-x-auto"
-  >
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkBreaks]}
-      components={{
-        // Custom code block styling
-        code: ({ node, className, children, ...props }) => {
-          const inline = !className;
-          return inline ? (
-            <code
-              className="bg-muted dark:bg-muted/50 px-1 py-0.5 rounded text-sm text-foreground"
-              {...props}
-            >
-              {children}
-            </code>
-          ) : (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        },
-        // Custom link styling
-        a: ({ children, href }) => (
-          <a
-            href={href}
-            className="text-primary hover:underline"
-            target="_blank"
-            rel="noopener noreferrer"
+export const Chat: React.FC = () => {
+  const { messages, isLoading, sendMessage, clearChat, history } = useChat();
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  const latestAssistant = useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find((message) => message.role === "assistant" && message.content.trim()),
+    [messages],
+  );
+
+  const latestUser = useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find((message) => message.role === "user" && message.content.trim()),
+    [messages],
+  );
+
+  return (
+    <div className="flex h-full flex-col bg-[#353433] text-[#f4f1ea]">
+      <div className="flex items-center justify-between border-b border-white/6 px-4 py-3">
+        <button
+          type="button"
+          onClick={clearChat}
+          className="inline-flex items-center gap-2 rounded-lg bg-white/[0.05] px-3 py-2 text-xs font-medium text-white/82 transition-colors hover:bg-white/[0.08]"
+        >
+          <Plus className="size-3.5" />
+          New chat
+        </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsHistoryOpen((value) => !value)}
+            className="flex size-8 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/85"
           >
-            {children}
-          </a>
-        ),
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  </div>
-);
+            <Clock3 className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void window.sidebarAPI.toggleSidebar()}
+            className="flex size-8 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/85"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      </div>
 
-// Assistant Message Component - appears on the left
-const AssistantMessage: React.FC<{
-  content: string;
-  isStreaming?: boolean;
-}> = ({ content, isStreaming }) => (
-  <div className="relative w-full animate-fade-in">
-    <div className="py-1">
-      {isStreaming ? (
-        <StreamingText content={content} />
-      ) : (
-        <Markdown content={content} />
-      )}
-    </div>
-  </div>
-);
+      {isHistoryOpen && (
+        <div className="border-b border-white/6 px-4 py-3">
+          <div className="rounded-[18px] border border-white/8 bg-white/[0.03] p-2">
+            <div className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-white/38">
+              History
+            </div>
 
-// Loading Indicator with spinning star
-const LoadingIndicator: React.FC = () => {
-  const [isVisible, setIsVisible] = useState(false);
-
-  useEffect(() => {
-    setIsVisible(true);
-  }, []);
-
-  return (
-    <div
-      className={cn(
-        "transition-transform duration-300 ease-in-out",
-        isVisible ? "scale-100" : "scale-0",
-      )}
-    >
-      ...
-    </div>
-  );
-};
-
-// Chat Input Component with pill design
-const ChatInput: React.FC<{
-  onSend: (message: string) => void;
-  disabled: boolean;
-}> = ({ onSend, disabled }) => {
-  const [value, setValue] = useState("");
-  const [isFocused, setIsFocused] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      const scrollHeight = textareaRef.current.scrollHeight;
-      const newHeight = Math.min(scrollHeight, 200); // Max 200px
-      textareaRef.current.style.height = `${newHeight}px`;
-    }
-  }, [value]);
-
-  const handleSubmit = () => {
-    if (value.trim() && !disabled) {
-      onSend(value.trim());
-      setValue("");
-      // Reset textarea height
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "24px";
-      }
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  return (
-    <div
-      className={cn(
-        "w-full border p-3 rounded-3xl bg-background dark:bg-secondary",
-        "shadow-chat animate-spring-scale outline-none transition-all duration-200",
-        isFocused
-          ? "border-primary/20 dark:border-primary/30"
-          : "border-border",
-      )}
-    >
-      {/* Input Area */}
-      <div className="w-full px-3 py-2">
-        <div className="w-full flex items-start gap-3">
-          <div className="relative flex-1 overflow-hidden">
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-              onKeyDown={handleKeyDown}
-              placeholder="Send a message..."
-              className="w-full resize-none outline-none bg-transparent 
-                                     text-foreground placeholder:text-muted-foreground
-                                     min-h-[24px] max-h-[200px]"
-              rows={1}
-              style={{ lineHeight: "24px" }}
-            />
+            {history.length > 0 ? (
+              <div className="space-y-1">
+                {history.map((item) => (
+                  <button
+                    key={item.sessionId}
+                    type="button"
+                    onClick={() => {
+                      setIsHistoryOpen(false);
+                      void window.sidebarAPI.createChatTab(item.sessionId);
+                    }}
+                    className="w-full rounded-[14px] px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.045]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-white/86">
+                          {item.title}
+                        </div>
+                        {item.preview && (
+                          <div className="mt-1 text-xs leading-5 text-white/42">
+                            {item.preview}
+                          </div>
+                        )}
+                      </div>
+                      <div className="shrink-0 pt-0.5 text-[11px] text-white/30">
+                        {formatHistoryTimestamp(item.updatedAt)}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="px-2 pb-2 pt-1 text-sm text-white/45">
+                No previous chats yet.
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Send Button */}
-      <div className="w-full flex items-center gap-1.5 px-1 mt-2 mb-1">
-        <div className="flex-1" />
-        <button
-          onClick={handleSubmit}
-          disabled={disabled || !value.trim()}
-          className={cn(
-            "size-9 rounded-full flex items-center justify-center",
-            "transition-all duration-200",
-            "bg-primary text-primary-foreground",
-            "hover:opacity-80 disabled:opacity-50",
-          )}
-        >
-          <ArrowUp className="size-5" />
-        </button>
-      </div>
-    </div>
-  );
-};
+      <div className="flex-1 overflow-y-auto px-5 py-6">
+        {latestAssistant ? (
+          <div className="space-y-4">
+            {latestUser && (
+              <div className="rounded-[20px] border border-white/8 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-white/58">
+                {latestUser.content}
+              </div>
+            )}
 
-// Conversation Turn Component
-interface ConversationTurn {
-  user?: Message;
-  assistant?: Message;
-}
-
-const ConversationTurnComponent: React.FC<{
-  turn: ConversationTurn;
-  isLoading?: boolean;
-  toolEvents?: {
-    toolName: string;
-    input: Record<string, unknown>;
-    status: "started" | "completed" | "error";
-    result?: string;
-    error?: string;
-    stepIndex: number;
-    callId: string;
-  }[];
-  onStopAgent?: () => void;
-}> = ({ turn, isLoading, toolEvents, onStopAgent }) => (
-  <div className="pt-12 flex flex-col gap-8">
-    {turn.user && <UserMessage content={turn.user.content} />}
-    {toolEvents && toolEvents.length > 0 && (
-      <AgentStepFeed
-        toolEvents={toolEvents}
-        isLoading={!!isLoading}
-        onStop={onStopAgent ?? (() => {})}
-      />
-    )}
-    {turn.assistant && (
-      <AssistantMessage
-        content={turn.assistant.content}
-        isStreaming={turn.assistant.isStreaming}
-      />
-    )}
-    {isLoading && !turn.assistant?.content && toolEvents?.length === 0 && (
-      <div className="flex justify-start">
-        <LoadingIndicator />
-      </div>
-    )}
-  </div>
-);
-
-// Main Chat Component
-export const Chat: React.FC = () => {
-  const { messages, isLoading, toolEvents, sendMessage, clearChat, stopAgent } =
-    useChat();
-  const scrollRef = useAutoScroll(messages);
-
-  // Group messages into conversation turns
-  const conversationTurns: ConversationTurn[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role === "user") {
-      const turn: ConversationTurn = { user: messages[i] };
-      if (messages[i + 1]?.role === "assistant") {
-        turn.assistant = messages[i + 1];
-        i++; // Skip next message since we've paired it
-      }
-      conversationTurns.push(turn);
-    } else if (
-      messages[i].role === "assistant" &&
-      (i === 0 || messages[i - 1]?.role !== "user")
-    ) {
-      // Handle standalone assistant messages
-      conversationTurns.push({ assistant: messages[i] });
-    }
-  }
-
-  // Check if we need to show loading after the last turn
-  const showLoadingAfterLastTurn =
-    isLoading && messages[messages.length - 1]?.role === "user";
-
-  return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="h-8 max-w-3xl mx-auto px-4">
-          {/* New Chat Button - Floating */}
-          {messages.length > 0 && (
-            <Button onClick={clearChat} title="Start new chat" variant="ghost">
-              <Plus className="size-4" />
-              New Chat
-            </Button>
-          )}
-        </div>
-
-        <div className="pb-4 relative max-w-3xl mx-auto px-4">
-          {messages.length === 0 ? (
-            // Empty State
-            <div className="flex items-center justify-center h-full min-h-[400px]">
-              <div className="text-center animate-fade-in max-w-md mx-auto gap-2 flex flex-col">
-                <h3 className="text-2xl font-bold">🫐</h3>
-                <p className="text-muted-foreground text-sm">
-                  Press ⌘E to toggle the sidebar
-                </p>
+            <div className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4 shadow-[0_16px_40px_rgba(0,0,0,0.16)]">
+              <div className="text-sm leading-6 text-white/88">
+                <AssistantMessage
+                  content={latestAssistant.content}
+                  isStreaming={latestAssistant.isStreaming}
+                />
               </div>
             </div>
-          ) : (
-            <>
-              {/* Render conversation turns */}
-              {conversationTurns.map((turn, index) => {
-                const isLastTurn = index === conversationTurns.length - 1;
-                return (
-                  <ConversationTurnComponent
-                    key={`turn-${index}`}
-                    turn={turn}
-                    isLoading={showLoadingAfterLastTurn && isLastTurn}
-                    toolEvents={isLastTurn ? toolEvents : undefined}
-                    onStopAgent={stopAgent}
-                  />
-                );
-              })}
-            </>
-          )}
-
-          {/* Scroll anchor */}
-          <div ref={scrollRef} />
-        </div>
+          </div>
+        ) : (
+          <div className="flex h-full min-h-[320px] items-center justify-center">
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-4 opacity-25">
+                <BlueberryMascot className="size-16" />
+              </div>
+              <div className="text-sm text-white/42">Quick asks live here.</div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Input Area */}
-      <div className="p-4">
-        <ChatInput onSend={sendMessage} disabled={isLoading} />
+      <div className={cn("border-t border-white/6 p-4", isLoading && "opacity-90")}>
+        <SidebarComposer disabled={isLoading} onSend={sendMessage} />
       </div>
     </div>
   );

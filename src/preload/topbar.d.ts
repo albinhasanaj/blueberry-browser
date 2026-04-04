@@ -5,6 +5,8 @@ interface TabInfo {
   title: string;
   url: string;
   isActive: boolean;
+  kind: "chat" | "web";
+  isAgentControlled: boolean;
 }
 
 interface TopBarAPI {
@@ -36,4 +38,3 @@ declare global {
     topBarAPI: TopBarAPI;
   }
 }
-

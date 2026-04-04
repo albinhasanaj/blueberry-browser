@@ -1,5 +1,5 @@
 import { ipcMain, WebContents } from "electron";
-import type { Window } from "./Window";
+import type { CreateTabOptions, Window } from "./Window";
 
 export class EventManager {
   private mainWindow: Window;
@@ -28,8 +28,8 @@ export class EventManager {
 
   private handleTabEvents(): void {
     // Create new tab
-    ipcMain.handle("create-tab", (_, url?: string) => {
-      const newTab = this.mainWindow.createTab(url);
+    ipcMain.handle("create-tab", (_, input?: string | CreateTabOptions) => {
+      const newTab = this.mainWindow.createTab(input);
       return { id: newTab.id, title: newTab.title, url: newTab.url };
     });
 
@@ -51,12 +51,18 @@ export class EventManager {
         title: tab.title,
         url: tab.url,
         isActive: activeTabId === tab.id,
+        kind: tab.kind,
+        isAgentControlled: tab.isAgentControlled,
       }));
     });
 
     // Navigation (for compatibility with existing code)
     ipcMain.handle("navigate-to", (_, url: string) => {
       if (this.mainWindow.activeTab) {
+        if (this.mainWindow.activeTab.kind === "chat") {
+          this.mainWindow.createTab(url);
+          return;
+        }
         this.mainWindow.activeTab.loadURL(url);
       }
     });
@@ -64,6 +70,10 @@ export class EventManager {
     ipcMain.handle("navigate-tab", async (_, tabId: string, url: string) => {
       const tab = this.mainWindow.getTab(tabId);
       if (tab) {
+        if (tab.kind === "chat") {
+          this.mainWindow.createTab(url);
+          return true;
+        }
         await tab.loadURL(url);
         return true;
       }
@@ -143,6 +153,8 @@ export class EventManager {
           title: activeTab.title,
           canGoBack: activeTab.webContents.canGoBack(),
           canGoForward: activeTab.webContents.canGoForward(),
+          kind: activeTab.kind,
+          isAgentControlled: activeTab.isAgentControlled,
         };
       }
       return null;
@@ -158,25 +170,29 @@ export class EventManager {
     });
 
     // Chat message (also serves as "agent-run" — starts the tool-use loop)
-    ipcMain.handle("sidebar-chat-message", async (_, request) => {
-      await this.mainWindow.sidebar.client.sendChatMessage(request);
+    ipcMain.handle("sidebar-chat-message", async (event, request) => {
+      await this.mainWindow.sidebar.client.sendChatMessage(event.sender, request);
     });
 
     // Stop the in-progress agent run
-    ipcMain.handle("agent-stop", () => {
-      this.mainWindow.sidebar.client.stopAgent();
+    ipcMain.handle("agent-stop", (event) => {
+      this.mainWindow.sidebar.client.stopAgent(event.sender);
       return true;
     });
 
     // Clear chat
-    ipcMain.handle("sidebar-clear-chat", () => {
-      this.mainWindow.sidebar.client.clearMessages();
+    ipcMain.handle("sidebar-clear-chat", (event) => {
+      this.mainWindow.sidebar.client.clearMessages(event.sender);
       return true;
     });
 
     // Get messages
-    ipcMain.handle("sidebar-get-messages", () => {
-      return this.mainWindow.sidebar.client.getMessages();
+    ipcMain.handle("sidebar-get-chat-session", (event) => {
+      return this.mainWindow.sidebar.client.getSessionState(event.sender);
+    });
+
+    ipcMain.handle("sidebar-open-chat-session", (event, sessionId: string) => {
+      return this.mainWindow.sidebar.client.openChatSession(event.sender, sessionId);
     });
   }
 
