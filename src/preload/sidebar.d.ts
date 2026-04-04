@@ -16,6 +16,16 @@ interface ChatResponse {
   isComplete: boolean;
 }
 
+interface AgentToolEvent {
+  toolName: string;
+  input: Record<string, unknown>;
+  status: "started" | "completed" | "error";
+  result?: string;
+  error?: string;
+  stepIndex: number;
+  callId: string;
+}
+
 interface TabInfo {
   id: string;
   title: string;
@@ -26,8 +36,17 @@ interface TabInfo {
 interface SidebarAPI {
   // Chat functionality
   sendChatMessage: (request: ChatRequest) => Promise<void>;
+  clearChat: () => Promise<boolean>;
+  getMessages: () => Promise<any[]>;
   onChatResponse: (callback: (data: ChatResponse) => void) => void;
+  onMessagesUpdated: (callback: (messages: any[]) => void) => void;
   removeChatResponseListener: () => void;
+  removeMessagesUpdatedListener: () => void;
+
+  // Agent control
+  stopAgent: () => Promise<boolean>;
+  onAgentToolEvent: (callback: (event: AgentToolEvent) => void) => void;
+  removeAgentToolEventListener: () => void;
 
   // Page content access
   getPageContent: () => Promise<string | null>;
@@ -44,4 +63,3 @@ declare global {
     sidebarAPI: SidebarAPI;
   }
 }
-

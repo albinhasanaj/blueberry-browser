@@ -1,4 +1,5 @@
-import { NativeImage, WebContentsView } from "electron";
+import { NativeImage, WebContents, WebContentsView } from "electron";
+import { serializePageScript, type PageScript } from "./pageScripts";
 
 export class Tab {
   private webContentsView: WebContentsView;
@@ -62,7 +63,7 @@ export class Tab {
     return this._isVisible;
   }
 
-  get webContents() {
+  get webContents(): WebContents {
     return this.webContentsView.webContents;
   }
 
@@ -85,16 +86,25 @@ export class Tab {
     return await this.webContentsView.webContents.capturePage();
   }
 
-  async runJs(code: string): Promise<any> {
-    return await this.webContentsView.webContents.executeJavaScript(code);
+  async runJs<TResult = unknown>(code: string): Promise<TResult> {
+    return (await this.webContentsView.webContents.executeJavaScript(
+      code,
+    )) as TResult;
+  }
+
+  async runPageScript<TArgs, TResult>(
+    script: PageScript<TArgs, TResult>,
+    args: TArgs,
+  ): Promise<TResult> {
+    return await this.runJs<TResult>(serializePageScript(script, args));
   }
 
   async getTabHtml(): Promise<string> {
-    return await this.runJs("return document.documentElement.outerHTML");
+    return await this.runJs("document.documentElement.outerHTML");
   }
 
   async getTabText(): Promise<string> {
-    return await this.runJs("return document.documentElement.innerText");
+    return await this.runJs("document.documentElement.innerText");
   }
 
   loadURL(url: string): Promise<void> {

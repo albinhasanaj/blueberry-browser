@@ -157,10 +157,15 @@ export class EventManager {
       return true;
     });
 
-    // Chat message
+    // Chat message (also serves as "agent-run" — starts the tool-use loop)
     ipcMain.handle("sidebar-chat-message", async (_, request) => {
-      // The LLMClient now handles getting the screenshot and context directly
       await this.mainWindow.sidebar.client.sendChatMessage(request);
+    });
+
+    // Stop the in-progress agent run
+    ipcMain.handle("agent-stop", () => {
+      this.mainWindow.sidebar.client.stopAgent();
+      return true;
     });
 
     // Clear chat
@@ -228,7 +233,7 @@ export class EventManager {
     if (this.mainWindow.topBar.view.webContents !== sender) {
       this.mainWindow.topBar.view.webContents.send(
         "dark-mode-updated",
-        isDarkMode
+        isDarkMode,
       );
     }
 
@@ -236,7 +241,7 @@ export class EventManager {
     if (this.mainWindow.sidebar.view.webContents !== sender) {
       this.mainWindow.sidebar.view.webContents.send(
         "dark-mode-updated",
-        isDarkMode
+        isDarkMode,
       );
     }
 

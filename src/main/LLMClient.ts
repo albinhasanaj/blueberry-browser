@@ -1,33 +1,33 @@
 import { WebContents } from "electron";
-import { streamText, type LanguageModel, type CoreMessage } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
-import * as dotenv from "dotenv";
-import { join } from "path";
+import {
+  streamText,
+  stepCountIs,
+  type LanguageModel,
+  type CoreMessage,
+  type StreamTextResult,
+  type ToolSet,
+} from "ai";
 import type { Window } from "./Window";
-
-// Load environment variables from .env file
-dotenv.config({ path: join(__dirname, "../../.env") });
-
-interface ChatRequest {
-  message: string;
-  messageId: string;
-}
-
-interface StreamChunk {
-  content: string;
-  isComplete: boolean;
-}
-
-type LLMProvider = "openai" | "anthropic";
-
-const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-sonnet-20241022",
-};
-
-const MAX_CONTEXT_LENGTH = 4000;
-const DEFAULT_TEMPERATURE = 0.7;
+import type { Tab } from "./Tab";
+import {
+  type ChatRequest,
+  type StreamChunk,
+  type AgentToolEvent,
+  type LLMProvider,
+  DEFAULT_TEMPERATURE,
+  MAX_AGENT_STEPS,
+  SCREENSHOT_JPEG_QUALITY,
+} from "./agent/types";
+import {
+  getProvider,
+  getModelName,
+  createModel,
+  logInitializationStatus,
+} from "./agent/modelProvider";
+import { createBrowserTools } from "./agent/browserTools";
+import { buildSystemPrompt } from "./agent/systemPrompt";
+import { recordSuccess } from "./agent/memory";
+import { learnFromToolCall, recordFailure as blueprintRecordFailure } from "./agent/blueprintCache";
 
 export class LLMClient {
   private readonly webContents: WebContents;
@@ -36,132 +36,78 @@ export class LLMClient {
   private readonly modelName: string;
   private readonly model: LanguageModel | null;
   private messages: CoreMessage[] = [];
+  private abortController: AbortController | null = null;
+  private toolStepIndex = 0;
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
-    this.provider = this.getProvider();
-    this.modelName = this.getModelName();
-    this.model = this.initializeModel();
-
-    this.logInitializationStatus();
+    this.provider = getProvider();
+    this.modelName = getModelName(this.provider);
+    this.model = createModel(this.provider, this.modelName);
+    logInitializationStatus(this.provider, this.modelName, this.model);
   }
 
-  // Set the window reference after construction to avoid circular dependencies
   setWindow(window: Window): void {
     this.window = window;
   }
 
-  private getProvider(): LLMProvider {
-    const provider = process.env.LLM_PROVIDER?.toLowerCase();
-    if (provider === "anthropic") return "anthropic";
-    return "openai"; // Default to OpenAI
-  }
-
-  private getModelName(): string {
-    return process.env.LLM_MODEL || DEFAULT_MODELS[this.provider];
-  }
-
-  private initializeModel(): LanguageModel | null {
-    const apiKey = this.getApiKey();
-    if (!apiKey) return null;
-
-    switch (this.provider) {
-      case "anthropic":
-        return anthropic(this.modelName);
-      case "openai":
-        return openai(this.modelName);
-      default:
-        return null;
+  stopAgent(): void {
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
     }
   }
 
-  private getApiKey(): string | undefined {
-    switch (this.provider) {
-      case "anthropic":
-        return process.env.ANTHROPIC_API_KEY;
-      case "openai":
-        return process.env.OPENAI_API_KEY;
-      default:
-        return undefined;
-    }
-  }
-
-  private logInitializationStatus(): void {
-    if (this.model) {
-      console.log(
-        `✅ LLM Client initialized with ${this.provider} provider using model: ${this.modelName}`
-      );
-    } else {
-      const keyName =
-        this.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
-      console.error(
-        `❌ LLM Client initialization failed: ${keyName} not found in environment variables.\n` +
-          `Please add your API key to the .env file in the project root.`
-      );
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Main chat + agent entry point
+  // ---------------------------------------------------------------------------
 
   async sendChatMessage(request: ChatRequest): Promise<void> {
+    this.abortController = new AbortController();
+    this.toolStepIndex = 0;
+
     try {
-      // Get screenshot from active tab if available
-      let screenshot: string | null = null;
-      if (this.window) {
-        const activeTab = this.window.activeTab;
-        if (activeTab) {
-          try {
-            const image = await activeTab.screenshot();
-            screenshot = image.toDataURL();
-          } catch (error) {
-            console.error("Failed to capture screenshot:", error);
-          }
-        }
-      }
+      const screenshot = await this.captureScreenshot();
 
-      // Build user message content with screenshot first, then text
-      const userContent: any[] = [];
-      
-      // Add screenshot as the first part if available
+      const userContent: Array<
+        { type: "image"; image: string } | { type: "text"; text: string }
+      > = [];
       if (screenshot) {
-        userContent.push({
-          type: "image",
-          image: screenshot,
-        });
+        userContent.push({ type: "image", image: screenshot });
       }
-      
-      // Add text content
-      userContent.push({
-        type: "text",
-        text: request.message,
-      });
+      userContent.push({ type: "text", text: request.message });
 
-      // Create user message in CoreMessage format
       const userMessage: CoreMessage = {
         role: "user",
         content: userContent.length === 1 ? request.message : userContent,
       };
-      
       this.messages.push(userMessage);
-
-      // Send updated messages to renderer
       this.sendMessagesToRenderer();
 
       if (!this.model) {
         this.sendErrorMessage(
           request.messageId,
-          "LLM service is not configured. Please add your API key to the .env file."
+          "LLM service is not configured. Please add your API key to the .env file.",
         );
         return;
       }
 
-      const messages = await this.prepareMessagesWithContext(request);
+      const messages = await this.prepareMessagesWithContext();
       await this.streamResponse(messages, request.messageId);
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        console.log("Agent run aborted by user.");
+        return;
+      }
       console.error("Error in LLM request:", error);
       this.handleStreamError(error, request.messageId);
+    } finally {
+      this.abortController = null;
     }
   }
 
   clearMessages(): void {
+    this.stopAgent();
     this.messages = [];
     this.sendMessagesToRenderer();
   }
@@ -170,170 +116,270 @@ export class LLMClient {
     return this.messages;
   }
 
+  // ---------------------------------------------------------------------------
+  // Internals
+  // ---------------------------------------------------------------------------
+
+  private getActiveTabOrThrow(): Tab {
+    const tab = this.window?.activeTab;
+    if (!tab) throw new Error("No active tab available");
+    return tab;
+  }
+
+  private getCurrentDomain(): string | null {
+    try {
+      const url = this.window?.activeTab?.url;
+      return url ? new URL(url).hostname : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private emitToolEvent(
+    toolName: string,
+    input: Record<string, unknown>,
+    status: AgentToolEvent["status"],
+    result?: string,
+    error?: string,
+    ref?: { stepIndex: number; callId: string },
+  ): { stepIndex: number; callId: string } {
+    if (status === "started") this.toolStepIndex++;
+    const stepIndex = ref?.stepIndex ?? this.toolStepIndex;
+    const callId = ref?.callId ?? `${stepIndex}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const event: AgentToolEvent = {
+      toolName,
+      input,
+      status,
+      result,
+      error,
+      stepIndex,
+      callId,
+    };
+    this.webContents.send("agent-tool-call", event);
+    return { stepIndex, callId };
+  }
+
+  /**
+   * Record a successful tool interaction to the memory store.
+   * Records click/type/find interactions that succeed on a domain.
+   */
+  private recordToolMemory(
+    toolName: string,
+    input: unknown,
+    output: unknown,
+  ): void {
+    if (!["click", "type", "find"].includes(toolName)) return;
+
+    const inp = input as Record<string, unknown>;
+    // For ref-based tools, record the ref; for selector-based, record the selector
+    const identifier =
+      (inp.selector as string | undefined) ||
+      (inp.css as string | undefined) ||
+      (inp.ref != null ? `ref=${inp.ref}` : undefined);
+    if (!identifier) return;
+
+    const out = typeof output === "string" ? output : "";
+    if (out.startsWith("Error")) return;
+
+    const domain = this.getCurrentDomain();
+    if (!domain) return;
+
+    try {
+      recordSuccess(domain, identifier, toolName, out.substring(0, 120));
+    } catch (err) {
+      console.error("Failed to record tool memory:", err);
+    }
+  }
+
+  private async captureScreenshot(): Promise<string | null> {
+    const activeTab = this.window?.activeTab;
+    if (!activeTab) return null;
+    try {
+      const image = await activeTab.screenshot();
+      const jpegBuffer = image.toJPEG(SCREENSHOT_JPEG_QUALITY);
+      return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+    } catch (error) {
+      console.error("Failed to capture screenshot:", error);
+      return null;
+    }
+  }
+
+  private stripOldScreenshots(messages: CoreMessage[]): CoreMessage[] {
+    return messages.map((msg): CoreMessage => {
+      if (msg.role !== "user" || typeof msg.content === "string") return msg;
+      if (!Array.isArray(msg.content)) return msg;
+
+      const filtered = msg.content.filter((part) => part.type !== "image");
+      if (
+        filtered.length === 1 &&
+        filtered[0]?.type === "text" &&
+        "text" in filtered[0] &&
+        typeof filtered[0].text === "string"
+      ) {
+        return { role: "user", content: filtered[0].text };
+      }
+      if (filtered.length === 0) {
+        return { role: "user", content: "" };
+      }
+      return { role: "user", content: filtered };
+    });
+  }
+
   private sendMessagesToRenderer(): void {
     this.webContents.send("chat-messages-updated", this.messages);
   }
 
-  private async prepareMessagesWithContext(_request: ChatRequest): Promise<CoreMessage[]> {
-    // Get page context from active tab
+  private async prepareMessagesWithContext(): Promise<CoreMessage[]> {
     let pageUrl: string | null = null;
     let pageText: string | null = null;
-    
-    if (this.window) {
-      const activeTab = this.window.activeTab;
-      if (activeTab) {
-        pageUrl = activeTab.url;
-        try {
-          pageText = await activeTab.getTabText();
-        } catch (error) {
-          console.error("Failed to get page text:", error);
+
+    const activeTab = this.window?.activeTab;
+    if (activeTab) {
+      pageUrl = activeTab.url;
+      try {
+        pageText = await activeTab.getTabText();
+      } catch (error) {
+        console.error("Failed to get page text:", error);
+      }
+    }
+
+    const systemMessage: CoreMessage = {
+      role: "system",
+      content: buildSystemPrompt(pageUrl, pageText),
+    };
+    const cleanedMessages = this.stripOldScreenshots(this.messages);
+    return [systemMessage, ...cleanedMessages];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Streaming
+  // ---------------------------------------------------------------------------
+
+  private async streamResponse(
+    messages: CoreMessage[],
+    messageId: string,
+  ): Promise<void> {
+    if (!this.model) throw new Error("Model not initialized");
+
+    const tools = createBrowserTools({
+      getActiveTab: () => this.getActiveTabOrThrow(),
+      captureScreenshot: () => this.captureScreenshot(),
+      emitToolEvent: (...args) => this.emitToolEvent(...args),
+      openTab: (url?: string) => {
+        if (!this.window) throw new Error("No window available");
+        const tab = this.window.createTab(url);
+        this.window.switchActiveTab(tab.id);
+        return tab;
+      },
+    });
+
+    let stepCount = 0;
+    const result = streamText({
+      model: this.model,
+      messages,
+      tools,
+      stopWhen: stepCountIs(MAX_AGENT_STEPS),
+      temperature: DEFAULT_TEMPERATURE,
+      maxRetries: 3,
+      abortSignal: this.abortController?.signal,
+      onStepFinish: ({ toolCalls }) => {
+        stepCount++;
+        if (toolCalls && toolCalls.length > 0) {
+          console.log(
+            `[Agent] Step ${stepCount}/${MAX_AGENT_STEPS} finished with ${toolCalls.length} tool call(s)`,
+          );
+        }
+        if (stepCount >= MAX_AGENT_STEPS) {
+          console.log(`[Agent] Reached max step limit (${MAX_AGENT_STEPS})`);
+        }
+      },
+    });
+
+    await this.processFullStream(result, messageId);
+  }
+
+  private async processFullStream<T extends ToolSet>(
+    result: StreamTextResult<T, unknown>,
+    messageId: string,
+  ): Promise<void> {
+    let accumulatedText = "";
+    const messageIndex = this.messages.length;
+    this.messages.push({ role: "assistant", content: "" });
+
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case "text-delta": {
+          accumulatedText += part.text;
+          this.messages[messageIndex] = {
+            role: "assistant",
+            content: accumulatedText,
+          };
+          this.sendMessagesToRenderer();
+          this.sendStreamChunk(messageId, {
+            content: part.text,
+            isComplete: false,
+          });
+          break;
+        }
+        case "tool-call": {
+          console.log(
+            `[Agent] Tool call: ${part.toolName}`,
+            JSON.stringify(part.input),
+          );
+          break;
+        }
+        case "tool-result": {
+          console.log(
+            `[Agent] Tool result for ${part.toolName}:`,
+            typeof part.output === "string"
+              ? part.output.substring(0, 100)
+              : part.output,
+          );
+          // Record successful selector-based interactions to memory
+          this.recordToolMemory(part.toolName, part.input, part.output);
+
+          // Blueprint learning
+          const toolOutput = typeof part.output === "string" ? part.output : "";
+          const toolInput = part.input as Record<string, unknown>;
+          const bpSelector =
+            (toolInput.selector as string | undefined) ||
+            (toolInput.css as string | undefined);
+          const bpDomain = this.getCurrentDomain();
+          const isSuccess = !toolOutput.startsWith("Error") && !toolOutput.startsWith("Failed");
+          if (bpDomain && bpSelector) {
+            if (isSuccess) {
+              learnFromToolCall(bpDomain, bpSelector, part.toolName, toolOutput);
+            } else {
+              blueprintRecordFailure(bpDomain, bpSelector);
+            }
+          }
+          break;
+        }
+        case "error": {
+          console.error("[Agent] Stream error:", part);
+          break;
         }
       }
     }
 
-    // Build system message
-    const systemMessage: CoreMessage = {
-      role: "system",
-      content: this.buildSystemPrompt(pageUrl, pageText),
-    };
-
-    // Include all messages in history (system + conversation)
-    return [systemMessage, ...this.messages];
-  }
-
-  private buildSystemPrompt(url: string | null, pageText: string | null): string {
-    const parts: string[] = [
-      "You are a helpful AI assistant integrated into a web browser.",
-      "You can analyze and discuss web pages with the user.",
-      "The user's messages may include screenshots of the current page as the first image.",
-    ];
-
-    if (url) {
-      parts.push(`\nCurrent page URL: ${url}`);
-    }
-
-    if (pageText) {
-      const truncatedText = this.truncateText(pageText, MAX_CONTEXT_LENGTH);
-      parts.push(`\nPage content (text):\n${truncatedText}`);
-    }
-
-    parts.push(
-      "\nPlease provide helpful, accurate, and contextual responses about the current webpage.",
-      "If the user asks about specific content, refer to the page content and/or screenshot provided."
-    );
-
-    return parts.join("\n");
-  }
-
-  private truncateText(text: string, maxLength: number): string {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + "...";
-  }
-
-  private async streamResponse(
-    messages: CoreMessage[],
-    messageId: string
-  ): Promise<void> {
-    if (!this.model) {
-      throw new Error("Model not initialized");
-    }
-
-    try {
-      const result = await streamText({
-        model: this.model,
-        messages,
-        temperature: DEFAULT_TEMPERATURE,
-        maxRetries: 3,
-        abortSignal: undefined, // Could add abort controller for cancellation
-      });
-
-      await this.processStream(result.textStream, messageId);
-    } catch (error) {
-      throw error; // Re-throw to be handled by the caller
-    }
-  }
-
-  private async processStream(
-    textStream: AsyncIterable<string>,
-    messageId: string
-  ): Promise<void> {
-    let accumulatedText = "";
-
-    // Create a placeholder assistant message
-    const assistantMessage: CoreMessage = {
-      role: "assistant",
-      content: "",
-    };
-    
-    // Keep track of the index for updates
-    const messageIndex = this.messages.length;
-    this.messages.push(assistantMessage);
-
-    for await (const chunk of textStream) {
-      accumulatedText += chunk;
-
-      // Update assistant message content
-      this.messages[messageIndex] = {
-        role: "assistant",
-        content: accumulatedText,
-      };
-      this.sendMessagesToRenderer();
-
-      this.sendStreamChunk(messageId, {
-        content: chunk,
-        isComplete: false,
-      });
-    }
-
-    // Final update with complete content
     this.messages[messageIndex] = {
       role: "assistant",
       content: accumulatedText,
     };
     this.sendMessagesToRenderer();
-
-    // Send the final complete signal
     this.sendStreamChunk(messageId, {
       content: accumulatedText,
       isComplete: true,
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Error handling + IPC helpers
+  // ---------------------------------------------------------------------------
+
   private handleStreamError(error: unknown, messageId: string): void {
     console.error("Error streaming from LLM:", error);
-
-    const errorMessage = this.getErrorMessage(error);
-    this.sendErrorMessage(messageId, errorMessage);
-  }
-
-  private getErrorMessage(error: unknown): string {
-    if (!(error instanceof Error)) {
-      return "An unexpected error occurred. Please try again.";
-    }
-
-    const message = error.message.toLowerCase();
-
-    if (message.includes("401") || message.includes("unauthorized")) {
-      return "Authentication error: Please check your API key in the .env file.";
-    }
-
-    if (message.includes("429") || message.includes("rate limit")) {
-      return "Rate limit exceeded. Please try again in a few moments.";
-    }
-
-    if (
-      message.includes("network") ||
-      message.includes("fetch") ||
-      message.includes("econnrefused")
-    ) {
-      return "Network error: Please check your internet connection.";
-    }
-
-    if (message.includes("timeout")) {
-      return "Request timeout: The service took too long to respond. Please try again.";
-    }
-
-    return "Sorry, I encountered an error while processing your request. Please try again.";
+    this.sendErrorMessage(messageId, getErrorMessage(error));
   }
 
   private sendErrorMessage(messageId: string, errorMessage: string): void {
@@ -350,4 +396,28 @@ export class LLMClient {
       isComplete: chunk.isComplete,
     });
   }
+}
+
+function getErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "An unexpected error occurred. Please try again.";
+  }
+  const message = error.message.toLowerCase();
+  if (message.includes("401") || message.includes("unauthorized")) {
+    return "Authentication error: Please check your API key in the .env file.";
+  }
+  if (message.includes("429") || message.includes("rate limit")) {
+    return "Rate limit exceeded. Please try again in a few moments.";
+  }
+  if (
+    message.includes("network") ||
+    message.includes("fetch") ||
+    message.includes("econnrefused")
+  ) {
+    return "Network error: Please check your internet connection.";
+  }
+  if (message.includes("timeout")) {
+    return "Request timeout: The service took too long to respond. Please try again.";
+  }
+  return "Sorry, I encountered an error while processing your request. Please try again.";
 }

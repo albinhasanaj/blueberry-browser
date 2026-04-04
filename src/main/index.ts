@@ -3,6 +3,7 @@ import { electronApp } from "@electron-toolkit/utils";
 import { Window } from "./Window";
 import { AppMenu } from "./Menu";
 import { EventManager } from "./EventManager";
+import { initDb } from "./agent/blueprintDb";
 
 let mainWindow: Window | null = null;
 let eventManager: EventManager | null = null;
@@ -18,6 +19,7 @@ const createWindow = (): Window => {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId("com.electron");
 
+  initDb();
   mainWindow = createWindow();
 
   app.on("activate", () => {

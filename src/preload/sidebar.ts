@@ -17,6 +17,15 @@ interface ChatResponse {
   isComplete: boolean;
 }
 
+interface AgentToolEvent {
+  toolName: string;
+  input: Record<string, unknown>;
+  status: "started" | "completed" | "error";
+  result?: string;
+  error?: string;
+  stepIndex: number;
+}
+
 // Sidebar specific APIs
 const sidebarAPI = {
   // Chat functionality
@@ -33,7 +42,7 @@ const sidebarAPI = {
 
   onMessagesUpdated: (callback: (messages: any[]) => void) => {
     electronAPI.ipcRenderer.on("chat-messages-updated", (_, messages) =>
-      callback(messages)
+      callback(messages),
     );
   },
 
@@ -43,6 +52,19 @@ const sidebarAPI = {
 
   removeMessagesUpdatedListener: () => {
     electronAPI.ipcRenderer.removeAllListeners("chat-messages-updated");
+  },
+
+  // Agent control
+  stopAgent: () => electronAPI.ipcRenderer.invoke("agent-stop"),
+
+  onAgentToolEvent: (callback: (event: AgentToolEvent) => void) => {
+    electronAPI.ipcRenderer.on("agent-tool-call", (_, event) =>
+      callback(event),
+    );
+  },
+
+  removeAgentToolEventListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("agent-tool-call");
   },
 
   // Page content access

@@ -1,4 +1,5 @@
-import { BaseWindow, shell } from "electron";
+import { BaseWindow, nativeImage } from "electron";
+import { join } from "path";
 import { Tab } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
@@ -19,6 +20,7 @@ export class Window {
       show: true,
       autoHideMenuBar: false,
       titleBarStyle: "hidden",
+      icon: nativeImage.createFromPath(join(__dirname, "../../resources/icon.png")),
       ...(process.platform !== "darwin" ? { titleBarOverlay: true } : {}),
       trafficLightPosition: { x: 15, y: 13 },
     });
@@ -47,14 +49,6 @@ export class Window {
           height: bounds.height,
         });
       }
-    });
-
-    // Handle external link opening
-    this.tabsMap.forEach((tab) => {
-      tab.webContents.setWindowOpenHandler((details) => {
-        shell.openExternal(details.url);
-        return { action: "deny" };
-      });
     });
 
     this.setupEventListeners();
@@ -107,6 +101,15 @@ export class Window {
 
     // Store the tab
     this.tabsMap.set(tabId, tab);
+
+    // Open links that would create new windows in a new Blueberry tab instead
+    tab.webContents.setWindowOpenHandler((details) => {
+      this.createTab(details.url);
+      this.switchActiveTab(
+        Array.from(this.tabsMap.keys()).pop()!,
+      );
+      return { action: "deny" };
+    });
 
     // If this is the first tab, make it active
     if (this.tabsMap.size === 1) {
