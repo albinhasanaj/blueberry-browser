@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Clock3, Plus, X } from "lucide-react";
+import { ArrowUp, Clock3, Plus, X } from "lucide-react";
 import { useChat } from "../contexts/ChatContext";
 import { AssistantMessage, BlueberryMascot } from "@common/components/chat";
 import { cn } from "@common/lib/utils";
@@ -28,7 +28,7 @@ const SidebarComposer: React.FC<{
   };
 
   return (
-    <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+    <div className="rounded-[22px] border border-white/10 bg-[#2a2928] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
@@ -40,7 +40,7 @@ const SidebarComposer: React.FC<{
         }}
         placeholder="Ask a follow-up..."
         rows={1}
-        className="min-h-[24px] w-full resize-none bg-transparent text-sm leading-6 text-white outline-none placeholder:text-white/22"
+        className="min-h-[24px] w-full resize-none bg-transparent text-sm leading-6 text-white outline-none placeholder:text-white/40"
       />
 
       <div className="mt-4 flex items-center justify-between">
@@ -52,20 +52,20 @@ const SidebarComposer: React.FC<{
         </button>
 
         <div className="flex items-center gap-2">
-          <div className="text-xs font-medium text-lime-300">Smart</div>
-          <button
+          {/* <div className="text-xs font-medium text-lime-300">Smart</div> */}
+          {/* <button
             type="button"
             className="flex size-8 items-center justify-center rounded-full bg-black/20 text-white/75"
           >
             <BlueberryMascot className="size-4.5" />
-          </button>
+          </button> */}
           <button
             type="button"
             onClick={() => void submit()}
             disabled={disabled || !value.trim()}
             className="flex size-8 items-center justify-center rounded-full bg-lime-400 text-[#1f2d12] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            <Plus className="size-4 rotate-45" />
+            <ArrowUp className="size-4" />
           </button>
         </div>
       </div>

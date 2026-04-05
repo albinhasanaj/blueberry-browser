@@ -64,7 +64,7 @@ export interface ChatSessionState {
 export type LLMProvider = "openai" | "anthropic";
 
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4o-mini",
+  openai: "gpt-4o",
   anthropic: "claude-sonnet-4-20250514",
 };
 

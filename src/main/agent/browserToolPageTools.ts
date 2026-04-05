@@ -12,8 +12,13 @@ export function createPageInteractionTools(context: BrowserToolContext) {
 
   return {
     read_page: tool({
-      description:
-        "Read the current page structure. Returns headings, forms, and all interactive elements (links, buttons, inputs, etc.) tagged with ref numbers. Use the ref numbers with the click and type tools. Always call this before interacting with a new page.",
+      description: [
+        "Read the current page structure.",
+        "Returns headings, forms, and all interactive elements tagged with ref numbers.",
+        "ALWAYS call this before interacting with a new or changed page.",
+        "Use the returned ref numbers with click() and type() tools.",
+        "If the output is too large, use find() to search for specific elements instead.",
+      ].join(" "),
       inputSchema: z.object({}),
       execute: async () => {
         const step = emitToolEvent("read_page", {}, "started");
@@ -39,8 +44,13 @@ export function createPageInteractionTools(context: BrowserToolContext) {
     }),
 
     find: tool({
-      description:
-        "Find elements on the page using various strategies. Returns matching elements with ref numbers you can pass to click/type. Provide at least one search parameter. Searches pierce shadow DOM boundaries.",
+      description: [
+        "Find elements on the page matching search criteria.",
+        "Returns matching elements with ref numbers for use with click() and type().",
+        "MUST provide at least one search parameter.",
+        "Searches pierce shadow DOM boundaries.",
+        "Use this instead of read_page() when you know what you are looking for.",
+      ].join(" "),
       inputSchema: z.object({
         css: z.string().optional().describe("CSS selector to search for"),
         text: z
@@ -103,8 +113,12 @@ export function createPageInteractionTools(context: BrowserToolContext) {
     }),
 
     click: tool({
-      description:
-        "Click an element on the page. Prefer using a ref number from read_page or find. Falls back to CSS selector if ref is not available (pierces shadow DOM).",
+      description: [
+        "Click an element on the page.",
+        "ALWAYS prefer using a ref number from read_page() or find().",
+        "Falls back to CSS selector if ref is not available (pierces shadow DOM).",
+        "MUST provide either ref or selector -- not both.",
+      ].join(" "),
       inputSchema: z.object({
         ref: z
           .number()
@@ -170,8 +184,13 @@ export function createPageInteractionTools(context: BrowserToolContext) {
     }),
 
     type: tool({
-      description:
-        "Type text into an input field. Prefer using a ref number from read_page or find. Focuses the element, clears it, then simulates real keyboard input character by character so it works with all frameworks (React, YouTube, etc). Only works on input, textarea, select, and contenteditable elements.",
+      description: [
+        "Type text into an input field.",
+        "ALWAYS prefer using a ref number from read_page() or find().",
+        "Focuses the element, clears existing content, then simulates real keyboard input character by character.",
+        "Works with all frameworks (React, YouTube, etc).",
+        "ONLY works on input, textarea, select, and contenteditable elements.",
+      ].join(" "),
       inputSchema: z.object({
         ref: z
           .number()
@@ -230,8 +249,11 @@ export function createPageInteractionTools(context: BrowserToolContext) {
     }),
 
     press_key: tool({
-      description:
-        "Press a keyboard key. Use this to submit forms (Enter), move between fields (Tab), close dialogs (Escape), etc. Common keys: Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp, Space.",
+      description: [
+        "Press a keyboard key.",
+        "Use to submit forms (Enter), navigate fields (Tab), close dialogs (Escape), or scroll (ArrowDown/ArrowUp).",
+        "Common keys: Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp, Space.",
+      ].join(" "),
       inputSchema: z.object({
         key: z
           .string()
@@ -258,8 +280,13 @@ export function createPageInteractionTools(context: BrowserToolContext) {
     }),
 
     javascript: tool({
-      description:
-        "Execute arbitrary JavaScript in the page context. Use this as an escape hatch when other tools cannot accomplish the task. The code runs in the web page's context (has access to DOM, window, etc). Returns the result of the last expression. The __blueberry API is available if the content script has been injected.",
+      description: [
+        "Execute JavaScript in the page context.",
+        "Use as an escape hatch when other tools cannot accomplish the task.",
+        "The code runs in the web page's context with full access to DOM and window.",
+        "Returns the result of the last expression.",
+        "NEVER use for simple tasks that click(), type(), or find() can handle.",
+      ].join(" "),
       inputSchema: z.object({
         code: z
           .string()

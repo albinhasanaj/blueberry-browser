@@ -15,7 +15,7 @@ interface AgentToolEvent {
 }
 
 interface CompanionEvent {
-  type: "companion:message" | "companion:thinking" | "companion:done";
+  type: "companion:message" | "companion:thinking" | "companion:done" | "companion:activity";
   fromId: string;
   fromName: string;
   fromEmoji: string;
@@ -23,6 +23,7 @@ interface CompanionEvent {
   toName?: string;
   content: string;
   timestamp: number;
+  activity?: string;
   isFinal?: boolean;
   turnIndex?: number;
 }

@@ -39,7 +39,7 @@ export function startTraceRun(prompt: string): string {
     tracePath: traceFile,
   };
   writeFileSync(traceFile, JSON.stringify(header) + "\n", "utf-8");
-  console.log(`[trace] Run started → ${traceFile}`);
+  console.log(`[trace] Run started -> ${traceFile}`);
   return currentRunId;
 }
 
@@ -86,7 +86,7 @@ export function endTraceRun(summary: Record<string, unknown> = {}): void {
   try {
     appendFileSync(traceFile, JSON.stringify(footer) + "\n", "utf-8");
     console.log(
-      `[trace] Run ended → ${eventCount} events in ${now - runStart}ms → ${traceFile}`,
+      `[trace] Run ended -> ${eventCount} events in ${now - runStart}ms -> ${traceFile}`,
     );
   } catch (err) {
     console.error("[trace] Failed to write trace footer:", err);

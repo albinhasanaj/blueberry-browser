@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowUp,
   Clock3,
   Compass,
   Globe,
-  Loader2,
   Plus,
   Square,
-  Zap,
 } from "lucide-react";
 import { ChatProvider, useChat } from "../../sidebar/src/contexts/ChatContext";
 import { AssistantMessage, BlueberryMascot } from "@common/components/chat";
@@ -14,7 +13,7 @@ import { cn } from "@common/lib/utils";
 import type { AgentToolEvent, Message } from "@common/components/chat/types";
 
 interface CompanionEvent {
-  type: "companion:message" | "companion:thinking" | "companion:done";
+  type: "companion:message" | "companion:thinking" | "companion:done" | "companion:activity";
   fromId: string;
   fromName: string;
   fromEmoji: string;
@@ -24,38 +23,7 @@ interface CompanionEvent {
   timestamp: number;
   isFinal?: boolean;
   turnIndex?: number;
-}
-
-const TOOL_LABELS: Record<string, string> = {
-  click: "Clicked",
-  type: "Typed",
-  press_key: "Pressed key",
-  navigate: "Navigated to",
-  read_page: "Read page",
-  find: "Searched for",
-  screenshot: "Took screenshot",
-  javascript: "Ran script",
-  open_tab: "Opened tab",
-  extract: "Extracted data",
-};
-
-function formatToolSummary(toolName: string, input: Record<string, unknown>): string {
-  const label = TOOL_LABELS[toolName] ?? toolName;
-  switch (toolName) {
-    case "navigate":
-    case "open_tab":
-      return `${label} ${String(input.url ?? "")}`;
-    case "click":
-      return input.ref != null ? `${label} element` : `${label} ${String(input.selector ?? "element")}`;
-    case "type":
-      return `${label} "${String(input.text ?? "")}"`;
-    case "press_key":
-      return `${label} ${String(input.key ?? "")}`;
-    case "find":
-      return `${label} elements`;
-    default:
-      return label;
-  }
+  activity?: string;
 }
 
 function getHostname(url: string): string {
@@ -200,109 +168,288 @@ const AssistantBlock: React.FC<{ message: Message }> = ({ message }) => {
   );
 };
 
-const COMPANION_COLORS: Record<string, string> = {
-  blueberry: "border-blue-400/20 bg-blue-400/10",
-  sally: "border-red-400/20 bg-red-400/10",
-  camille: "border-purple-400/20 bg-purple-400/10",
-  ella: "border-emerald-400/20 bg-emerald-400/10",
+const COMPANION_NAME_COLORS: Record<string, string> = {
+  blueberry: "text-blue-300",
+  sally: "text-rose-300",
+  camille: "text-purple-300",
+  ella: "text-emerald-300",
+  astrid: "text-amber-300",
 };
 
-const InlineCompanionEvent: React.FC<{ event: CompanionEvent }> = ({ event }) => {
-  if (event.type === "companion:thinking") {
+const COMPANION_BG_COLORS: Record<string, string> = {
+  blueberry: "bg-blue-400/[0.06]",
+  sally: "bg-rose-400/[0.06]",
+  camille: "bg-purple-400/[0.06]",
+  ella: "bg-emerald-400/[0.06]",
+  astrid: "bg-amber-400/[0.06]",
+};
+
+const CollapsedThinking: React.FC<{ event: CompanionEvent }> = ({ event }) => {
+  const [expanded, setExpanded] = useState(false);
+  const nameColor = COMPANION_NAME_COLORS[event.fromId] ?? "text-white/70";
+  const text = event.content?.trim();
+
+  if (!text) return null;
+
+  return (
+    <div className="py-0.5 pl-4">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 text-left transition-colors hover:bg-white/[0.03] rounded-lg px-1 -mx-1 py-1"
+      >
+        <span className="text-[12px] text-white/20">{expanded ? "▾" : "▸"}</span>
+        <span className="text-sm">{event.fromEmoji}</span>
+        <span className={cn("text-[13px] font-medium", nameColor)}>{event.fromName}</span>
+        <span className="text-[13px] text-white/20 italic">thought</span>
+      </button>
+      {expanded && (
+        <div className="mt-1 ml-7 text-[13px] leading-5 text-white/25 italic whitespace-pre-wrap border-l border-white/[0.06] pl-3 mb-1">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CompanionThreadEvent: React.FC<{ event: CompanionEvent; finished?: boolean }> = ({ event, finished }) => {
+  const nameColor = COMPANION_NAME_COLORS[event.fromId] ?? "text-white/70";
+
+  if (event.type === "companion:activity") {
+    // Live activity — pulsing
     return (
-      <div className="flex items-center gap-1.5 py-0.5 px-1 text-sm text-white/30">
-        <span>{event.fromEmoji}</span>
-        <span className="animate-pulse">thinking…</span>
+      <div className="flex items-center gap-2 py-1 pl-4">
+        <span className="text-sm">{event.fromEmoji}</span>
+        <span className={cn("text-[13px] font-medium", nameColor)}>{event.fromName}</span>
+        <span className="text-[13px] italic text-white/30 animate-pulse">{event.activity ?? event.content}</span>
+      </div>
+    );
+  }
+
+  if (event.type === "companion:thinking") {
+    // Finished thinking → show collapsible block
+    if (finished) {
+      return <CollapsedThinking event={event} />;
+    }
+
+    const text = event.content?.trim();
+    // Streaming thinking → show live text with cursor
+    if (text) {
+      return (
+        <div className="py-1.5 pl-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">{event.fromEmoji}</span>
+            <span className={cn("text-[13px] font-medium", nameColor)}>{event.fromName}</span>
+          </div>
+          <div className="mt-1 ml-7 text-[13px] leading-5 text-white/30 italic whitespace-pre-wrap">
+            {text}
+            <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-white/25 animate-pulse align-middle" />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2 py-1.5 pl-4">
+        <span className="text-sm">{event.fromEmoji}</span>
+        <span className={cn("text-[13px] font-medium", nameColor)}>{event.fromName}</span>
+        <span className="text-[13px] italic text-white/25 animate-pulse">thinking...</span>
       </div>
     );
   }
 
   if (event.type === "companion:done") {
     return (
-      <div className="flex items-center gap-1.5 py-0.5 px-1 text-sm text-white/35">
-        <span className="text-green-400">✓</span>
-        <span>{event.fromEmoji}</span>
-        <span>{event.fromName} done</span>
+      <div className="flex items-center gap-2 py-1.5 pl-4">
+        <span className="text-[13px] text-green-400/80">✓</span>
+        <span className="text-sm">{event.fromEmoji}</span>
+        <span className={cn("text-[13px] font-medium", nameColor)}>{event.fromName}</span>
+        <span className="text-[13px] text-white/30">done</span>
       </div>
     );
   }
 
-  // companion:message
-  const colorClass = COMPANION_COLORS[event.fromId] ?? "border-white/10 bg-white/[0.04]";
+  // companion:message — the main conversation line
+  const bgColor = COMPANION_BG_COLORS[event.fromId] ?? "bg-white/[0.03]";
+  const isOrchestratorMessage = event.toName;
+
   return (
-    <div className={cn("rounded-lg border px-3 py-2 my-1", colorClass)}>
-      <div className="flex items-center gap-1.5 text-[11px]">
-        <span>{event.fromEmoji}</span>
-        <span className="font-medium text-white/70">{event.fromName}</span>
-        {event.toName && (
-          <span className="text-white/35">→ {event.toName}</span>
+    <div className={cn("rounded-xl py-2.5 px-4 my-0.5", bgColor)}>
+      <div className="flex items-center gap-1.5 text-[13px]">
+        <span className="text-sm">{event.fromEmoji}</span>
+        <span className={cn("font-semibold", nameColor)}>{event.fromName}</span>
+        {isOrchestratorMessage && (
+          <>
+            <span className="text-white/20">→</span>
+            <span className={cn("font-semibold", COMPANION_NAME_COLORS[event.toId ?? ""] ?? "text-white/60")}>
+              {event.toName}
+            </span>
+          </>
         )}
       </div>
-      <div className="mt-1 text-xs text-white/55 whitespace-pre-wrap">
+      <div className="mt-1 text-[13px] leading-5 text-white/55">
         {event.content}
       </div>
     </div>
   );
 };
 
-const CompanionEventSection: React.FC<{ events: CompanionEvent[] }> = ({ events }) => {
+type ThreadItem =
+  | { kind: "event"; event: CompanionEvent; finished?: boolean }
+  | { kind: "activity-group"; companionId: string; emoji: string; name: string; activities: CompanionEvent[] };
+
+const CollapsedActivityGroup: React.FC<{ item: Extract<ThreadItem, { kind: "activity-group" }> }> = ({ item }) => {
   const [expanded, setExpanded] = useState(false);
-
-  if (events.length === 0) return null;
-
-  const messageEvents = events.filter((e) => e.type === "companion:message");
-  const latestOrchestrator = [...events]
-    .reverse()
-    .find((e) => e.type === "companion:message" && e.fromId === "blueberry");
-
-  // Deduplicate consecutive thinking events
-  const deduped: CompanionEvent[] = [];
-  for (const e of events) {
-    if (e.type === "companion:thinking") {
-      const prev = deduped[deduped.length - 1];
-      if (prev?.type === "companion:thinking" && prev.fromId === e.fromId) continue;
-    }
-    deduped.push(e);
-  }
+  const nameColor = COMPANION_NAME_COLORS[item.companionId] ?? "text-white/70";
 
   return (
-    <div className="rounded-lg border border-white/8 bg-white/[0.02] overflow-hidden">
+    <div className="py-0.5 pl-4">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs text-white/40 hover:bg-white/[0.03] transition-colors"
+        className="flex items-center gap-2 text-left transition-colors hover:bg-white/[0.03] rounded-lg px-1 -mx-1 py-1"
       >
-        <span>{expanded ? "▾" : "▸"}</span>
-        <span>Companion reasoning ({messageEvents.length} messages)</span>
+        <span className="text-[12px] text-white/20">{expanded ? "▾" : "▸"}</span>
+        <span className="text-sm">{item.emoji}</span>
+        <span className={cn("text-[13px] font-medium", nameColor)}>{item.name}</span>
+        <span className="text-[13px] text-white/20">{item.activities.length} steps</span>
       </button>
-      {expanded ? (
-        <div className="px-3 pb-3 space-y-1">
-          {deduped.map((e, i) => (
-            <InlineCompanionEvent key={`${e.fromId}-${e.timestamp}-${i}`} event={e} />
+      {expanded && (
+        <div className="ml-7 border-l border-white/[0.06] pl-3 mb-1 space-y-0.5">
+          {item.activities.map((a, i) => (
+            <div key={`${a.timestamp}-${i}`} className="flex items-center gap-1.5 py-0.5 text-[12px] text-white/25">
+              <span className="text-white/15">•</span>
+              <span>{a.activity ?? a.content}</span>
+            </div>
           ))}
         </div>
-      ) : (
-        latestOrchestrator && (
-          <div className="px-3 pb-3">
-            <InlineCompanionEvent event={latestOrchestrator} />
-          </div>
-        )
       )}
     </div>
   );
 };
 
-const InlineToolEvent: React.FC<{ event: AgentToolEvent }> = ({ event }) => {
-  const summary = formatToolSummary(event.toolName, event.input);
+const CompanionThread: React.FC<{ events: CompanionEvent[] }> = ({ events }) => {
+  if (events.length === 0) return null;
+
+  // Track which companions have finished (received companion:done)
+  const finishedCompanions = new Set<string>();
+  for (const e of events) {
+    if (e.type === "companion:done") finishedCompanions.add(e.fromId);
+  }
+
+  // Build render items:
+  // - Consecutive thinking from same companion → keep latest
+  // - Activity events from finished companions → group into collapsible block
+  // - Activity events from live companions → show latest only (live pulsing)
+  // - Result messages from finished companions → defer until after done
+  // - When done arrives, keep any preceding thinking with content
+  const items: ThreadItem[] = [];
+
+  // Collect all activities per companion for finished ones
+  const activityBuffer = new Map<string, CompanionEvent[]>();
+  // Buffer thinking events from finished companions so they render after steps
+  const thinkingBuffer = new Map<string, CompanionEvent>();
+  // Buffer result messages (companion:message with toId) from finished companions
+  const messageBuffer = new Map<string, CompanionEvent[]>();
+  // Track which companions have already been flushed (done event processed)
+  const flushedCompanions = new Set<string>();
+  // Track which companions have started working (received thinking/activity)
+  const startedCompanions = new Set<string>();
+
+  for (const e of events) {
+    if (e.type === "companion:thinking") {
+      startedCompanions.add(e.fromId);
+      if (finishedCompanions.has(e.fromId) && !flushedCompanions.has(e.fromId)) {
+        // Buffer thinking for finished companions — will flush after activity group
+        thinkingBuffer.set(e.fromId, e);
+      } else {
+        // Live companion or already flushed — render inline, collapse consecutive
+        const lastItem = items[items.length - 1];
+        if (lastItem?.kind === "event" && lastItem.event.type === "companion:thinking" && lastItem.event.fromId === e.fromId) {
+          lastItem.event = e;
+          continue;
+        }
+        items.push({ kind: "event", event: e });
+      }
+      continue;
+    }
+
+    if (e.type === "companion:activity") {
+      startedCompanions.add(e.fromId);
+      if (finishedCompanions.has(e.fromId)) {
+        // Accumulate for grouping
+        if (!activityBuffer.has(e.fromId)) activityBuffer.set(e.fromId, []);
+        activityBuffer.get(e.fromId)!.push(e);
+      } else {
+        // Live companion — collapse to latest
+        const lastItem = items[items.length - 1];
+        if (lastItem?.kind === "event" && lastItem.event.type === "companion:activity" && lastItem.event.fromId === e.fromId) {
+          lastItem.event = e;
+        } else {
+          items.push({ kind: "event", event: e });
+        }
+      }
+      continue;
+    }
+
+    if (e.type === "companion:done") {
+      // Flush activity buffer as a grouped block
+      const buffered = activityBuffer.get(e.fromId);
+      if (buffered && buffered.length > 0) {
+        items.push({
+          kind: "activity-group",
+          companionId: e.fromId,
+          emoji: e.fromEmoji,
+          name: e.fromName,
+          activities: buffered,
+        });
+        activityBuffer.delete(e.fromId);
+      }
+
+      // Flush buffered thinking (final reasoning) after steps
+      const bufferedThinking = thinkingBuffer.get(e.fromId);
+      if (bufferedThinking && bufferedThinking.content?.trim()) {
+        items.push({ kind: "event", event: bufferedThinking, finished: true });
+        thinkingBuffer.delete(e.fromId);
+      }
+
+      items.push({ kind: "event", event: e });
+      flushedCompanions.add(e.fromId);
+
+      // Flush any deferred result messages from this companion after done
+      const deferredMsgs = messageBuffer.get(e.fromId);
+      if (deferredMsgs) {
+        for (const msg of deferredMsgs) {
+          items.push({ kind: "event", event: msg });
+        }
+        messageBuffer.delete(e.fromId);
+      }
+      continue;
+    }
+
+    // companion:message — defer result messages from companions that have
+    // started working but haven't finished yet, so they appear after done
+    if (e.toId && startedCompanions.has(e.fromId) && !flushedCompanions.has(e.fromId)) {
+      if (!messageBuffer.has(e.fromId)) messageBuffer.set(e.fromId, []);
+      messageBuffer.get(e.fromId)!.push(e);
+    } else {
+      items.push({ kind: "event", event: e });
+    }
+  }
 
   return (
-    <div className="flex items-center gap-2.5 py-1 px-1 text-sm text-white/40">
-      {event.status === "started" ? (
-        <Loader2 className="size-3.5 animate-spin text-white/30" />
-      ) : (
-        <div className="size-1.5 rounded-full bg-white/25" />
-      )}
-      <span>{summary}</span>
+    <div className="space-y-0.5 py-2">
+      {items.map((item, i) => {
+        if (item.kind === "activity-group") {
+          return <CollapsedActivityGroup key={`ag-${item.companionId}-${i}`} item={item} />;
+        }
+        return (
+          <CompanionThreadEvent
+            key={`${item.event.fromId}-${item.event.timestamp}-${i}`}
+            event={item.event}
+            finished={item.finished}
+          />
+        );
+      })}
     </div>
   );
 };
@@ -335,7 +482,7 @@ const TaskComposer: React.FC<{
   };
 
   return (
-    <div className="rounded-[24px] border border-white/7 bg-black/[0.10] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.10)]">
+    <div className="rounded-[24px] border border-white/10 bg-[#2a2928] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.35)]">
       <textarea
         ref={textareaRef}
         value={value}
@@ -348,7 +495,7 @@ const TaskComposer: React.FC<{
         }}
         placeholder={placeholder}
         rows={1}
-        className="min-h-[24px] w-full resize-none bg-transparent text-base leading-7 text-[#f4eee4] outline-none placeholder:text-white/22"
+        className="min-h-[24px] w-full resize-none bg-transparent text-base leading-7 text-[#f4eee4] outline-none placeholder:text-white/40"
       />
 
       <div className="mt-4 flex items-center justify-between">
@@ -360,23 +507,23 @@ const TaskComposer: React.FC<{
         </button>
 
         <div className="flex items-center gap-2">
-          <div className="inline-flex items-center gap-1 text-xs font-medium text-lime-300">
+          {/* <div className="inline-flex items-center gap-1 text-xs font-medium text-lime-300">
             <Zap className="size-3.5" />
             Smart
-          </div>
-          <button
+          </div> */}
+          {/* <button
             type="button"
             className="flex size-8 items-center justify-center rounded-full bg-white/[0.04] text-white/78"
           >
             <BlueberryMascot className="size-4.5" />
-          </button>
+          </button> */}
           <button
             type="button"
             onClick={() => void submit()}
             disabled={disabled || !value.trim()}
             className="flex size-8 items-center justify-center rounded-full bg-lime-300 text-[#1c2611] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            <Plus className="size-4 rotate-45" />
+            <ArrowUp className="size-4" />
           </button>
         </div>
       </div>
@@ -447,18 +594,12 @@ const ActiveSessionView: React.FC<{
             )}
 
             {(() => {
-              // Group companion events and tool events by turnIndex
+              // Group companion events by turnIndex
               const companionsByTurn = new Map<number, CompanionEvent[]>();
               for (const e of companionEvents) {
                 const turn = e.turnIndex ?? 0;
                 if (!companionsByTurn.has(turn)) companionsByTurn.set(turn, []);
                 companionsByTurn.get(turn)!.push(e);
-              }
-              const toolsByTurn = new Map<number, AgentToolEvent[]>();
-              for (const e of toolEvents) {
-                const turn = e.turnIndex ?? 0;
-                if (!toolsByTurn.has(turn)) toolsByTurn.set(turn, []);
-                toolsByTurn.get(turn)!.push(e);
               }
 
               let userMsgCount = 0;
@@ -470,22 +611,13 @@ const ActiveSessionView: React.FC<{
                       const turn = userMsgCount;
                       userMsgCount++;
                       const turnCompanion = companionsByTurn.get(turn) ?? [];
-                      const turnTools = toolsByTurn.get(turn) ?? [];
 
                       return (
                         <React.Fragment key={message.id}>
                           <UserBubble message={message} />
 
                           {turnCompanion.length > 0 && (
-                            <CompanionEventSection events={turnCompanion} />
-                          )}
-
-                          {turnTools.length > 0 && (
-                            <div className="space-y-0.5">
-                              {turnTools.map((event) => (
-                                <InlineToolEvent key={event.callId} event={event} />
-                              ))}
-                            </div>
+                            <CompanionThread events={turnCompanion} />
                           )}
                         </React.Fragment>
                       );
@@ -497,11 +629,12 @@ const ActiveSessionView: React.FC<{
               );
             })()}
 
-            {/* Loading spinner when waiting for first response */}
-            {isLoading && toolEvents.length === 0 && messages[messages.length - 1]?.role === "user" && (
-              <div className="flex items-center gap-2 px-1 text-sm text-white/35">
-                <Loader2 className="size-3.5 animate-spin" />
-                Thinking...
+            {/* Loading indicator when waiting */}
+            {isLoading && toolEvents.length === 0 && companionEvents.length === 0 && messages[messages.length - 1]?.role === "user" && (
+              <div className="flex items-center gap-2 py-1.5 pl-4">
+                <span className="text-sm">🫐</span>
+                <span className="text-[13px] font-semibold text-blue-300">Blueberry</span>
+                <span className="text-[13px] italic text-white/25 animate-pulse">thinking...</span>
               </div>
             )}
 

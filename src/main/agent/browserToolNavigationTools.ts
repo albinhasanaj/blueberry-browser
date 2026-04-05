@@ -17,8 +17,13 @@ export function createNavigationTools(context: BrowserToolContext) {
 
   return {
     navigate: tool({
-      description:
-        "Navigate the browser to a URL. Provide a full URL including https://. After navigation, call read_page to understand the new page.",
+      description: [
+        "Navigate the browser to a URL.",
+        "MUST provide a full URL including https://.",
+        "ALWAYS call read_page() after navigation to understand the new page.",
+        "This switches the active tab -- you can interact with the page immediately after.",
+        "Prefer this over open_tab() for primary navigation.",
+      ].join(" "),
       inputSchema: z.object({
         url: z.string().url().describe("The full URL to navigate to"),
       }),
@@ -61,8 +66,12 @@ export function createNavigationTools(context: BrowserToolContext) {
     }),
 
     screenshot: tool({
-      description:
-        "Take a screenshot of the current page. The image is captured as JPEG and attached for you to see. Use after actions to verify results visually.",
+      description: [
+        "Take a screenshot of the current page.",
+        "Returns a JPEG image attached for visual inspection.",
+        "Use after performing actions to verify results visually.",
+        "Use when you need to understand visual layout that read_page() cannot convey.",
+      ].join(" "),
       inputSchema: z.object({}),
       execute: async () => {
         const step = emitToolEvent("screenshot", {}, "started");
@@ -87,8 +96,12 @@ export function createNavigationTools(context: BrowserToolContext) {
     }),
 
     open_tab: tool({
-      description:
-        "Open a URL in a new browser tab and switch to it. Use this when the user asks to open something in a new tab, or when you want to keep the current page open while visiting another. After opening, call read_page to understand the new page.",
+      description: [
+        "Open a URL in a new browser tab.",
+        "ONLY use this when you explicitly need to keep the current page open.",
+        "For normal navigation, ALWAYS prefer navigate() instead.",
+        "After opening, call read_page() to understand the new page.",
+      ].join(" "),
       inputSchema: z.object({
         url: z.string().url().describe("The full URL to open in a new tab"),
       }),

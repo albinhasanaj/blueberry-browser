@@ -3,6 +3,7 @@ import type { BrowserToolDeps } from "../browserTools";
 import { createModel, getModelName, getProvider } from "../modelProvider";
 import { getCompanion, getOrchestratorCompanion } from "./registry";
 import { runWorker, extractJSON } from "./runner";
+import { loadPrompt } from "../prompts/loadPrompt";
 import type { CompanionEvent, CompanionRunResult } from "./types";
 
 interface OrchestrationParams {
@@ -11,6 +12,7 @@ interface OrchestrationParams {
   onCompanionEvent: (event: CompanionEvent) => void;
   onFinalResponse: (text: string) => void;
   abortSignal?: AbortSignal;
+  conversationHistory?: Array<{ role: string; content: string }>;
 }
 
 interface TaskPlan {
@@ -46,6 +48,7 @@ async function orchestratorStreamText(
   userContent: string,
   orchestratorPrompt: string,
   abortSignal?: AbortSignal,
+  onTextDelta?: (accumulated: string) => void,
 ): Promise<string> {
   const provider = getProvider();
   const modelName = getModelName(provider);
@@ -69,6 +72,7 @@ async function orchestratorStreamText(
   for await (const part of result.fullStream) {
     if (part.type === "text-delta") {
       text += part.text;
+      onTextDelta?.(text);
     }
   }
   return text;
@@ -100,29 +104,30 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
   const orchestrator = getOrchestratorCompanion();
 
   // -------------------------------------------------------------------
-  // Phase 1 — Blueberry plans
+  // Phase 1 -- Blueberry plans
   // -------------------------------------------------------------------
-  emitMessage(
-    params,
-    { id: orchestrator.id, name: orchestrator.name, emoji: orchestrator.emoji },
-    "Let me break this down and get the right people on it.",
-  );
 
-  const planSystemAddition =
-    'Respond with a JSON plan in this exact format: { "tasks": [{ "companionId": string, "task": string, "reason": string }] }. ' +
-    "Only use these companion IDs: sally, camille, ella. " +
-    "Think carefully about which specialist fits each subtask.";
+  const planSystemAddition = loadPrompt("orchestrator/plan");
 
-  console.log(`[companion] ──── Phase 1: Planning ────`);
+  console.log(`[companion] ---- Phase 1: Planning ----`);
   console.log(`[companion] Orchestrator: ${orchestrator.name} (${orchestrator.id})`);
   console.log(`[companion] User message: ${params.userMessage}`);
   console.log(`[companion] Plan system addition: ${planSystemAddition}`);
+
+  // Build planning input with optional conversation history
+  let planningInput = params.userMessage;
+  if (params.conversationHistory && params.conversationHistory.length > 0) {
+    const historyBlock = params.conversationHistory
+      .map((m) => `${m.role}: ${m.content}`)
+      .join("\n");
+    planningInput = `Previous conversation:\n${historyBlock}\n\nCurrent request: ${params.userMessage}`;
+  }
 
   let planText: string;
   try {
     planText = await orchestratorStreamText(
       planSystemAddition,
-      params.userMessage,
+      planningInput,
       orchestrator.systemPrompt,
       params.abortSignal,
     );
@@ -141,11 +146,11 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
 
   let plan: TaskPlan;
   const parsedPlan = extractJSON(planText) as TaskPlan | null;
-  if (parsedPlan && Array.isArray(parsedPlan.tasks) && parsedPlan.tasks.length > 0) {
+  if (parsedPlan && Array.isArray(parsedPlan.tasks)) {
     plan = parsedPlan;
     console.log(`[companion] Parsed plan: ${plan.tasks.length} task(s)`);
     for (const t of plan.tasks) {
-      console.log(`[companion]   → ${t.companionId}: ${t.task} (${t.reason})`);
+      console.log(`[companion]   > ${t.companionId}: ${t.task} (${t.reason})`);
     }
   } else {
     console.warn(`[companion] Could not parse plan from LLM response, falling back to Ella`);
@@ -155,16 +160,67 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
         {
           companionId: "ella",
           task: params.userMessage,
-          reason: "Fallback — could not parse a structured plan",
+          reason: "Fallback -- could not parse a structured plan",
         },
       ],
     };
   }
 
   // -------------------------------------------------------------------
-  // Phase 2 — Workers execute (sequentially)
+  // Empty plan -- Blueberry answers directly, skip worker phase
   // -------------------------------------------------------------------
-  console.log(`[companion] ──── Phase 2: Worker Execution ────`);
+  if (plan.tasks.length === 0) {
+    console.log(`[companion] Empty plan -- Blueberry answering directly`);
+
+    const directPrompt = loadPrompt("orchestrator/direct");
+
+    let directInput = `User message: ${params.userMessage}`;
+    if (params.conversationHistory && params.conversationHistory.length > 0) {
+      const historyBlock = params.conversationHistory
+        .map((m) => `${m.role}: ${m.content}`)
+        .join("\n");
+      directInput = `Previous conversation:\n${historyBlock}\n\nCurrent message: ${params.userMessage}`;
+    }
+
+    let finalText: string;
+    try {
+      // No thinking events for direct responses -- the response IS the output,
+      // not internal reasoning. Showing it as "thought" would duplicate the final message.
+      finalText = await orchestratorStreamText(
+        directPrompt,
+        directInput,
+        orchestrator.systemPrompt,
+        params.abortSignal,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      finalText = `Sorry, I had trouble responding: ${msg}`;
+    }
+
+    params.onCompanionEvent({
+      type: "companion:done",
+      fromId: orchestrator.id,
+      fromName: orchestrator.name,
+      fromEmoji: orchestrator.emoji,
+      content: "Response complete",
+      timestamp: Date.now(),
+      isFinal: true,
+    });
+
+    params.onFinalResponse(finalText);
+    return;
+  }
+
+  // -------------------------------------------------------------------
+  // Phase 2 -- Workers execute (sequentially)
+  // -------------------------------------------------------------------
+  emitMessage(
+    params,
+    { id: orchestrator.id, name: orchestrator.name, emoji: orchestrator.emoji },
+    "Let me break this down and get the right people on it.",
+  );
+
+  console.log(`[companion] ---- Phase 2: Worker Execution ----`);
   const results = new Map<string, CompanionRunResult>();
 
   for (const taskEntry of plan.tasks) {
@@ -172,7 +228,7 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
     try {
       worker = getCompanion(taskEntry.companionId);
     } catch {
-      console.warn(`[companion] Unknown companion "${taskEntry.companionId}" — skipping`);
+      console.warn(`[companion] Unknown companion "${taskEntry.companionId}" -- skipping`);
       continue;
     }
 
@@ -260,7 +316,7 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
       emitMessage(
         params,
         { id: worker.id, name: worker.name, emoji: worker.emoji },
-        `Done — here are my results.`,
+        `Done -- here are my results.`,
         { id: orchestrator.id, name: orchestrator.name },
       );
     } else {
@@ -286,17 +342,18 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
   // -------------------------------------------------------------------
   // Phase 3 — Blueberry synthesizes
   // -------------------------------------------------------------------
-  console.log(`[companion] ──── Phase 3: Synthesis ────`);
+  console.log(`[companion] ---- Phase 3: Synthesis ----`);
   console.log(`[companion] Workers completed: ${results.size}`);
   for (const [cid, r] of results) {
     console.log(`[companion]   ${cid}: success=${r.success}, output=${r.structuredOutput ? 'yes' : 'no'}`);
   }
   params.onCompanionEvent({
-    type: "companion:thinking",
+    type: "companion:activity",
     fromId: orchestrator.id,
     fromName: orchestrator.name,
     fromEmoji: orchestrator.emoji,
-    content: "Analyzing all results...",
+    content: "analyzing results...",
+    activity: "analyzing results...",
     timestamp: Date.now(),
   });
 
@@ -311,10 +368,7 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
     };
   }
 
-  const synthesisPrompt =
-    "You have received results from your team. " +
-    "Synthesize them into a clear, well-formatted final answer for the user. " +
-    "Do not mention JSON or raw data — write a natural response.";
+  const synthesisPrompt = loadPrompt("orchestrator/synthesis");
 
   const synthesisInput = `Original request: ${params.userMessage}\n\nTeam results:\n${JSON.stringify(workerResultsSummary, null, 2)}`;
   console.log(`[companion] Synthesis prompt: ${synthesisPrompt}`);
@@ -327,6 +381,16 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
       synthesisInput,
       orchestrator.systemPrompt,
       params.abortSignal,
+      (accumulated) => {
+        params.onCompanionEvent({
+          type: "companion:thinking",
+          fromId: orchestrator.id,
+          fromName: orchestrator.name,
+          fromEmoji: orchestrator.emoji,
+          content: accumulated,
+          timestamp: Date.now(),
+        });
+      },
     );
     console.log(`[companion] Final synthesis (first 1000 chars):\n${finalText.substring(0, 1000)}`);
   } catch (err) {
@@ -346,6 +410,6 @@ export async function runOrchestration(params: OrchestrationParams): Promise<voi
     isFinal: true,
   });
 
-  console.log(`[companion] ──── Orchestration complete ────`);
+  console.log(`[companion] ---- Orchestration complete ----`);
   params.onFinalResponse(finalText);
 }

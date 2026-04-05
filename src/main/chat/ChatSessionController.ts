@@ -324,6 +324,12 @@ export class ChatSessionController {
   // ---------------------------------------------------------------------------
 
   private async runCompanionOrchestration(userMessage: string): Promise<void> {
+    // Build conversation history from last 4 messages for context
+    const history = this.messages.slice(-4).map((m) => ({
+      role: m.role,
+      content: extractMessageText(m.content),
+    }));
+
     await runOrchestration({
       userMessage,
       deps: this.createBrowserToolDeps(),
@@ -337,6 +343,7 @@ export class ChatSessionController {
         this.completeRun("completed");
       },
       abortSignal: this.abortController?.signal,
+      conversationHistory: history,
     });
   }
 
@@ -447,7 +454,14 @@ export class ChatSessionController {
       const jpegBuffer = image.toJPEG(SCREENSHOT_JPEG_QUALITY);
       return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
     } catch (error) {
-      console.error("Failed to capture screenshot:", error);
+      // "Current display surface not available" is normal when the tab isn't
+      // visible (e.g. minimized, behind another window). Don't log a stack trace.
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("display surface")) {
+        console.warn("[screenshot] Display surface unavailable -- skipping");
+      } else {
+        console.error("Failed to capture screenshot:", error);
+      }
       return null;
     }
   }

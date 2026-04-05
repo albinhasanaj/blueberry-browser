@@ -1,6 +1,7 @@
 import { streamText, stepCountIs } from "ai";
 import { createBrowserTools, type BrowserToolDeps } from "../browserTools";
 import { createModel, getModelName, getProvider } from "../modelProvider";
+import { loadPromptWithVars } from "../prompts/loadPrompt";
 import type {
   CompanionDeclaration,
   CompanionEvent,
@@ -115,7 +116,10 @@ export async function runWorker(params: {
     }
   }
 
-  const userMessage = `Task: ${task}\n\nContext from orchestrator:\n${JSON.stringify(context, null, 2)}`;
+  const userMessage = loadPromptWithVars("worker/task", {
+    task,
+    context: JSON.stringify(context, null, 2),
+  });
 
   console.log(`[companion:worker] --- ${companion.name} (${companion.id}) starting ---`);
   console.log(`[companion:worker] Tools: [${Object.keys(filteredTools).join(", ")}]`);
@@ -136,22 +140,54 @@ export async function runWorker(params: {
     });
 
     let accumulatedText = "";
+    let thinkingText = "";
     let toolCallCount = 0;
 
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
         accumulatedText += part.text;
+        thinkingText += part.text;
         onEvent({
           type: "companion:thinking",
           fromId: companion.id,
           fromName: companion.name,
           fromEmoji: companion.emoji,
-          content: part.text,
+          content: thinkingText,
           timestamp: Date.now(),
         });
       } else if (part.type === "tool-call") {
+        // Reset thinking text when switching to tool use
+        thinkingText = "";
         toolCallCount++;
         console.log(`[companion:worker] ${companion.name} tool-call #${toolCallCount}: ${part.toolName}(${JSON.stringify((part as Record<string, unknown>).args ?? (part as Record<string, unknown>).input).substring(0, 300)})`);
+        // Emit activity event so the UI shows what the worker is doing
+        const args = (part as Record<string, unknown>).args ?? (part as Record<string, unknown>).input ?? {};
+        let activity: string;
+        switch (part.toolName) {
+          case "navigate":
+          case "open_tab": {
+            const url = String((args as Record<string, unknown>).url ?? "");
+            try { activity = `browsing ${new URL(url).hostname.replace("www.", "")}...`; } catch { activity = "browsing..."; }
+            break;
+          }
+          case "read_page": activity = "reading page..."; break;
+          case "find": activity = "searching page..."; break;
+          case "click": activity = "clicking..."; break;
+          case "type": activity = "typing..."; break;
+          case "screenshot": activity = "taking screenshot..."; break;
+          case "javascript": activity = "running script..."; break;
+          case "extract": activity = "extracting data..."; break;
+          default: activity = `using ${part.toolName}...`;
+        }
+        onEvent({
+          type: "companion:activity",
+          fromId: companion.id,
+          fromName: companion.name,
+          fromEmoji: companion.emoji,
+          content: activity,
+          activity,
+          timestamp: Date.now(),
+        });
       } else if (part.type === "tool-result") {
         const rawResult = (part as Record<string, unknown>).result ?? (part as Record<string, unknown>).output;
         const resultStr = typeof rawResult === "string" ? rawResult : JSON.stringify(rawResult);
@@ -159,7 +195,7 @@ export async function runWorker(params: {
       }
     }
 
-    console.log(`[companion:worker] ${companion.name} finished — ${toolCallCount} tool call(s), ${accumulatedText.length} chars output`);
+    console.log(`[companion:worker] ${companion.name} finished -- ${toolCallCount} tool call(s), ${accumulatedText.length} chars output`);
     console.log(`[companion:worker] ${companion.name} full output:\n${accumulatedText.substring(0, 2000)}`);
 
     const parsed = extractJSON(accumulatedText);

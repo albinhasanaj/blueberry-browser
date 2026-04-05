@@ -1,4 +1,5 @@
 import type { CompanionCapability, CompanionDeclaration } from "./types";
+import { loadPrompt } from "../prompts/loadPrompt";
 
 const companions = new Map<string, CompanionDeclaration>();
 
@@ -9,14 +10,7 @@ const BLUEBERRY: CompanionDeclaration = {
   role: "orchestrator",
   capabilities: ["synthesis"],
   toolset: [],
-  systemPrompt:
-    "You are Blueberry, the orchestrator brain of this browser. Every user request comes to you first. " +
-    "You decide whether to answer directly or delegate to specialist companions. " +
-    "For simple questions or conversation, just answer directly without calling anyone. " +
-    "For anything requiring web browsing, data extraction, research, lead generation, or competitor analysis, " +
-    "delegate to the right specialist companion. You never touch the web yourself — that is what your team is for. " +
-    "When delegating, be specific about exactly what you need back and in what format. " +
-    "When you have all results from your team, synthesize everything into one clean natural response for the user.",
+  systemPrompt: loadPrompt("companions/blueberry"),
   maxSteps: 10,
   temperature: 0.3,
 };
@@ -38,12 +32,7 @@ const SALLY: CompanionDeclaration = {
     "open_tab",
     "javascript",
   ],
-  systemPrompt:
-    "You are Sally, a specialist in sales lead generation and outreach. " +
-    "You browse the web, find qualified leads, extract contact information, and draft personalized outreach. " +
-    "You return ONLY clean structured JSON. " +
-    "If you are unsure what format Blueberry needs, ask before proceeding. " +
-    "Always end your response with a JSON block containing your results.",
+  systemPrompt: loadPrompt("companions/sally"),
   maxSteps: 50,
   temperature: 0.6,
 };
@@ -55,12 +44,7 @@ const CAMILLE: CompanionDeclaration = {
   role: "worker",
   capabilities: ["competitor_analysis", "lead_generation"],
   toolset: ["read_page", "find", "navigate", "screenshot", "open_tab", "javascript"],
-  systemPrompt:
-    "You are Camille, a specialist in competitor analysis and market research. " +
-    "You browse the web and return ONLY clean structured JSON. " +
-    "Never return raw HTML or unstructured text. " +
-    "If you are unsure what format Blueberry needs, ask before proceeding. " +
-    "Always end your response with a JSON block.",
+  systemPrompt: loadPrompt("companions/camille"),
   maxSteps: 40,
   temperature: 0.5,
 };
@@ -82,12 +66,7 @@ const ELLA: CompanionDeclaration = {
     "javascript",
     "open_tab",
   ],
-  systemPrompt:
-    "You are Ella, a specialist in data extraction and structured scraping. " +
-    "You extract data from any website and return ONLY clean structured JSON. " +
-    "If you cannot extract something, tell the requesting companion exactly why " +
-    "and what you could extract instead. " +
-    "Always end your response with a JSON block.",
+  systemPrompt: loadPrompt("companions/ella"),
   maxSteps: 50,
   temperature: 0.7,
 };

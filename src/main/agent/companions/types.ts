@@ -29,7 +29,7 @@ export interface CompanionMessage {
 }
 
 export interface CompanionEvent {
-  type: "companion:message" | "companion:thinking" | "companion:done";
+  type: "companion:message" | "companion:thinking" | "companion:done" | "companion:activity";
   fromId: string;
   fromName: string;
   fromEmoji: string;
@@ -39,6 +39,8 @@ export interface CompanionEvent {
   timestamp: number;
   isFinal?: boolean;
   turnIndex?: number;
+  /** Activity label shown during streaming, e.g. "browsing linkedin.com", "analyzing data" */
+  activity?: string;
 }
 
 export interface CompanionRunResult {
