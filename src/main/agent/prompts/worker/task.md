@@ -4,6 +4,11 @@
 # Context from orchestrator
 {{context}}
 
+# Execution style
+- For simple, direct tasks (open a page, click something, navigate) — act immediately using your tools. Do not over-plan or narrate your strategy.
+- For complex research tasks — plan briefly, then execute.
+- Prefer action over deliberation. Use your tools first, reason only when the next step is genuinely unclear.
+
 # Research strategy
 - If the task names a specific website (e.g. "open YouTube", "go to reddit"), navigate there directly -- do NOT search Google for it
 - For research tasks (e.g. "find startups in Berlin"), start by searching Google: navigate to https://www.google.com/search?q=YOUR+QUERY

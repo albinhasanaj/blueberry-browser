@@ -1,7 +1,8 @@
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import type { CompanionEvent } from "./companions/types";
 
 export type { CompanionEvent };
+export type LLMProvider = "openai" | "anthropic";
 
 export interface ChatRequest {
   message: string;
@@ -51,7 +52,7 @@ export interface ChatHistoryEntry {
 export interface ChatSessionState {
   sessionId: string;
   sourcePage: ChatSourcePage | null;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   toolEvents: AgentToolEvent[];
   companionEvents: CompanionEvent[];
   latestRun: ChatLatestRun;
@@ -59,12 +60,13 @@ export interface ChatSessionState {
   currentWorkTabId: string | null;
   agentTabIds: string[];
   history: ChatHistoryEntry[];
+  llmProvider: LLMProvider;
+  llmModel: string;
+  lastOpenAIResponseId: string | null;
 }
 
-export type LLMProvider = "openai" | "anthropic";
-
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4o",
+  openai: "gpt-5-mini",
   anthropic: "claude-sonnet-4-20250514",
 };
 

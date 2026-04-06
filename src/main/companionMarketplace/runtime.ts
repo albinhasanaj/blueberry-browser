@@ -53,7 +53,7 @@ export function catalogCompanionToDeclaration(params: {
     bestFor: params.companion.bestFor,
     tags: params.companion.tags,
     capabilities: [],
-    toolset: [...params.companion.tools],
+    toolset: [...params.companion.tools, "delegate"],
     systemPrompt: composeMarketplacePrompt({
       companion: params.companion,
       currentDate: new Date().toISOString().split("T")[0],

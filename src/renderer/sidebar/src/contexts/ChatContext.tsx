@@ -52,6 +52,9 @@ const DEFAULT_STATE: ChatSessionState = {
   currentWorkTabId: null,
   agentTabIds: [],
   history: [],
+  llmProvider: "openai",
+  llmModel: "gpt-5-mini",
+  lastOpenAIResponseId: null,
 };
 
 export const useChat = (): ChatContextType => {

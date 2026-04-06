@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import { Globe, Square } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Globe, Loader2, Square } from "lucide-react";
 import { AssistantMessage, BlueberryMascot } from "@common/components/chat";
 import type { AgentToolEvent, Message } from "@common/components/chat/types";
 import type { CompanionEvent, SourcePage } from "@common/types/chatSession";
@@ -7,6 +7,67 @@ import { groupCompanionEventsByTurn } from "../domain/companionThread";
 import { getFaviconUrl, getHostname } from "../domain/sessionView";
 import { CompanionThread } from "./CompanionThread";
 import { TaskComposer } from "./TaskComposer";
+
+const COMPANION_SPEC_RE = /<!-- companion-spec (.*?) -->/s;
+
+function extractCompanionSpec(
+  content: string,
+): { cleanContent: string; spec: Record<string, unknown> } | null {
+  const match = COMPANION_SPEC_RE.exec(content);
+  if (!match) return null;
+  try {
+    const spec = JSON.parse(match[1]) as Record<string, unknown>;
+    const cleanContent = content.replace(match[0], "").trimEnd();
+    return { cleanContent, spec };
+  } catch {
+    return null;
+  }
+}
+
+const BuildCompanionButton: React.FC<{
+  spec: Record<string, unknown>;
+  onBuild: (spec: Record<string, unknown>) => Promise<void>;
+}> = ({ spec, onBuild }) => {
+  const [busy, setBusy] = useState(false);
+  const [built, setBuilt] = useState(false);
+
+  const handleClick = async (): Promise<void> => {
+    if (busy || built) return;
+    setBusy(true);
+    try {
+      await onBuild(spec);
+      setBuilt(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleClick()}
+      disabled={busy || built}
+      className="mt-4 flex items-center gap-2.5 rounded-xl border border-lime-300/20 bg-lime-300/[0.08] px-4 py-2.5 text-sm font-medium text-lime-300 transition-all hover:bg-lime-300/[0.14] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {busy ? (
+        <>
+          <Loader2 className="size-4 animate-spin" />
+          Building companion...
+        </>
+      ) : built ? (
+        <>
+          <Bot className="size-4" />
+          Companion published
+        </>
+      ) : (
+        <>
+          <Bot className="size-4" />
+          Build companion
+        </>
+      )}
+    </button>
+  );
+};
 
 const SourcePageCard: React.FC<{ sourcePage: SourcePage }> = ({
   sourcePage,
@@ -42,15 +103,28 @@ const UserBubble: React.FC<{ message: Message }> = ({ message }) => (
   </div>
 );
 
-const AssistantBlock: React.FC<{ message: Message }> = ({ message }) => {
+const AssistantBlock: React.FC<{
+  message: Message;
+  onBuildCompanionFromSpec?: (spec: Record<string, unknown>) => Promise<void>;
+}> = ({ message, onBuildCompanionFromSpec }) => {
   if (!message.content.trim() && !message.isStreaming) return null;
+
+  const parsed = message.isStreaming
+    ? null
+    : extractCompanionSpec(message.content);
 
   return (
     <div className="px-1 text-[15px] leading-7 text-[#f3efe7]">
       <AssistantMessage
-        content={message.content}
+        content={parsed ? parsed.cleanContent : message.content}
         isStreaming={message.isStreaming}
       />
+      {parsed && onBuildCompanionFromSpec && (
+        <BuildCompanionButton
+          spec={parsed.spec}
+          onBuild={onBuildCompanionFromSpec}
+        />
+      )}
     </div>
   );
 };
@@ -90,6 +164,7 @@ interface ActiveSessionViewProps {
   sendMessage: (message: string) => Promise<void>;
   stopAgent: () => void;
   sourcePage: SourcePage | null;
+  onBuildCompanionFromSpec?: (spec: Record<string, unknown>) => Promise<void>;
 }
 
 export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
@@ -100,6 +175,7 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
   sendMessage,
   stopAgent,
   sourcePage,
+  onBuildCompanionFromSpec,
 }) => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const companionEventsByTurn = useMemo(
@@ -146,7 +222,13 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
                 );
               }
 
-              return <AssistantBlock key={message.id} message={message} />;
+              return (
+                <AssistantBlock
+                  key={message.id}
+                  message={message}
+                  onBuildCompanionFromSpec={onBuildCompanionFromSpec}
+                />
+              );
             })}
 
             {showIdleLoadingIndicator && (

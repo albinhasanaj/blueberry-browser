@@ -199,6 +199,7 @@ export const CompanionBuilderView: React.FC<CompanionBuilderViewProps> = ({
   onPublish,
   onSavePatch,
 }) => {
+  const [showTools, setShowTools] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [form, setForm] = useState<CompanionDraft | null>(selectedDraft);
 
@@ -286,16 +287,28 @@ export const CompanionBuilderView: React.FC<CompanionBuilderViewProps> = ({
           />
         </div>
 
-        {/* ── Tools — always visible ── */}
+        {/* ── Collapsible sections ── */}
         {selectedDraft && form && (
           <>
-            <div className="mt-10 border-t border-white/[0.04] pt-6">
-              <h3 className="text-xs font-medium text-white/45">
+            <div className="mt-10 border-t border-white/[0.04] pt-5">
+              <button
+                type="button"
+                onClick={() => setShowTools((v) => !v)}
+                className="flex items-center gap-2 text-xs font-medium text-white/35 transition-colors hover:text-white/55"
+              >
+                <ChevronDown
+                  className={cn(
+                    "size-3.5 transition-transform",
+                    showTools && "rotate-180",
+                  )}
+                />
                 Browser tools
-              </h3>
+              </button>
 
+              {showTools && (
+              <div className="mt-3">
               {/* Presets */}
-              <div className="mt-3 flex gap-2">
+              <div className="flex gap-2">
                 {(
                   [
                     { key: "research", label: "Research", desc: "Read-only browsing" },
@@ -364,10 +377,12 @@ export const CompanionBuilderView: React.FC<CompanionBuilderViewProps> = ({
                   </div>
                 </div>
               </div>
+              </div>
+              )}
             </div>
 
             {/* ── Collapsible details ── */}
-            <div className="mt-8 border-t border-white/[0.04] pt-5">
+            <div className="mt-4 border-t border-white/[0.04] pt-5">
               <button
                 type="button"
                 onClick={() => setShowDetails((v) => !v)}

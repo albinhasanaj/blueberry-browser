@@ -5,7 +5,8 @@ export type CompanionCapability =
   | "competitor_analysis"
   | "data_extraction"
   | "outreach"
-  | "synthesis";
+  | "synthesis"
+  | "companion_building";
 
 export interface CompanionDeclaration {
   id: string;
@@ -62,4 +63,5 @@ export interface CompanionRunResult {
   error?: string;
   toolCallCount?: number;
   maxSteps?: number;
+  responseId?: string | null;
 }

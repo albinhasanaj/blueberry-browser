@@ -287,6 +287,23 @@ const NewTabContent: React.FC = () => {
     }
   };
 
+  const handleBuildCompanionFromSpec = async (
+    spec: Record<string, unknown>,
+  ): Promise<void> => {
+    try {
+      const draft = (await window.companionAPI.autoGenerateCompanion(
+        JSON.stringify(spec),
+      )) as CompanionDraft;
+      await window.companionAPI.publishCompanionDraft(draft.id);
+      await refreshCatalog();
+      setStatusMessage(`Companion "${draft.name}" published and ready`);
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error ? error.message : "Failed to build companion.",
+      );
+    }
+  };
+
   return (
     <div className="flex h-screen bg-[#343332] text-[#f5f1e9]">
       <NewTabSidebar
@@ -322,6 +339,7 @@ const NewTabContent: React.FC = () => {
               sendMessage={sendMessage}
               stopAgent={stopAgent}
               sourcePage={sourcePage}
+              onBuildCompanionFromSpec={handleBuildCompanionFromSpec}
             />
           ) : (
             <EmptyState

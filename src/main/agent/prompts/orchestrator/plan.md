@@ -11,7 +11,8 @@ You MUST respond with ONLY a raw JSON object. No markdown fences, no explanation
 - Use `companionKind: "core"` for built-in companions and `companionKind: "marketplace"` for community companions discovered with `search_marketplace_companions`
 - Use "blueberry" for simple, general browser tasks (open a page, click something, navigate, fill a form)
 - Use core specialists only for their domain: sally for leads/outreach, camille for market research, ella for data extraction/structured scraping
-- Use `search_marketplace_companions` only when the core roster is not a good fit
+- **ALWAYS call `search_marketplace_companions` first** when the task involves a specific domain, niche, or workflow (e.g. SaaS, pricing, lead gen, social media). Marketplace companions are user-built specialists that may be a better fit than generalist core companions.
+- If `search_marketplace_companions` returns a relevant match (score > 0.3), prefer it over core companions for that part of the task. You can still assign remaining sub-tasks to core companions.
 - Be specific in your task descriptions -- tell the worker exactly what to do
 
 ## Examples

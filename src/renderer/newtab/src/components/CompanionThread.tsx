@@ -13,6 +13,7 @@ const COMPANION_NAME_COLORS: Record<string, string> = {
   camille: "text-purple-300",
   ella: "text-emerald-300",
   astrid: "text-amber-300",
+  archer: "text-lime-300",
 };
 
 const COMPANION_BG_COLORS: Record<string, string> = {
@@ -21,6 +22,7 @@ const COMPANION_BG_COLORS: Record<string, string> = {
   camille: "bg-purple-400/[0.06]",
   ella: "bg-emerald-400/[0.06]",
   astrid: "bg-amber-400/[0.06]",
+  archer: "bg-lime-400/[0.06]",
 };
 
 const TAB_LANE_COLORS = [
@@ -68,7 +70,7 @@ const CollapsedThinking: React.FC<{ event: CompanionEvent }> = ({ event }) => {
         <span className={cn("text-[13px] font-medium", nameColor)}>
           {event.fromName}
         </span>
-        <span className="text-[13px] italic text-white/20">thought</span>
+        <span className="text-[13px] italic text-white/20">reasoning</span>
       </button>
       {expanded && (
         <div className="mb-1 ml-7 mt-1 whitespace-pre-wrap border-l border-white/[0.06] pl-3 text-[13px] italic leading-5 text-white/25">

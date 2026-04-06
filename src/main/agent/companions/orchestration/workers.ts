@@ -44,7 +44,9 @@ async function rerunWorkerWithClarification(params: {
 
   let clarificationAnswer: string;
   try {
-    clarificationAnswer = await streamOrchestratorText({
+    const clarification = await streamOrchestratorText({
+      router: orchestration.router,
+      scope: "worker",
       systemAddition: loadPrompt("orchestrator/clarification"),
       userContent: buildClarificationInput(
         orchestration.userMessage,
@@ -53,6 +55,7 @@ async function rerunWorkerWithClarification(params: {
       orchestratorPrompt: orchestrator.systemPrompt,
       abortSignal: orchestration.abortSignal,
     });
+    clarificationAnswer = clarification.text;
   } catch {
     clarificationAnswer = "Please do your best with the information available.";
   }
@@ -71,6 +74,7 @@ async function rerunWorkerWithClarification(params: {
     task,
     context: { clarification: clarificationAnswer },
     deps: orchestration.deps,
+    router: orchestration.router,
     onEvent: orchestration.onCompanionEvent,
     abortSignal: orchestration.abortSignal,
     availableWorkers,
@@ -100,9 +104,16 @@ async function runWorkerWithQualityGate(params: {
     task,
     context: {},
     deps: orchestration.deps,
+    router: orchestration.router,
     onEvent: orchestration.onCompanionEvent,
     abortSignal: orchestration.abortSignal,
     availableWorkers,
+    scope:
+      worker.id === orchestrator.id ? "chat" : "worker",
+    previousOpenAIResponseId:
+      worker.id === orchestrator.id
+        ? orchestration.previousOpenAIResponseId
+        : undefined,
   });
   console.log(
     `[companion] ${worker.name} finished in ${Date.now() - workerStartTime}ms (success=${result.success})`,
@@ -189,9 +200,16 @@ async function runWorkerWithQualityGate(params: {
         instruction: `Your previous attempt was rejected. ${retryFeedback}. Try a different approach than before.`,
       },
       deps: orchestration.deps,
+      router: orchestration.router,
       onEvent: orchestration.onCompanionEvent,
       abortSignal: orchestration.abortSignal,
       availableWorkers,
+      scope:
+        worker.id === orchestrator.id ? "chat" : "worker",
+      previousOpenAIResponseId:
+        worker.id === orchestrator.id
+          ? orchestration.previousOpenAIResponseId
+          : undefined,
     });
     console.log(
       `[companion] ${worker.name} retry #${attempt + 1} finished in ${Date.now() - retryStart}ms (success=${finalResult.success})`,

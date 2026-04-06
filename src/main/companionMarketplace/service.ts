@@ -1,7 +1,7 @@
 import {
   generateObject,
   generateText,
-  type CoreMessage,
+  type ModelMessage,
 } from "ai";
 import { z } from "zod";
 import type {
@@ -16,7 +16,10 @@ import type {
   CompanionSearchResult,
   PublishedCompanion,
 } from "../../shared/companionMarketplace";
-import { createModel, getModelName, getProvider } from "../agent/modelProvider";
+import {
+  type LLMRouter,
+  safeTemperatureForRoute,
+} from "../agent/llmRouter";
 import { getAllCompanions } from "../agent/companions/registry";
 import { loadPrompt } from "../agent/prompts/loadPrompt";
 import {
@@ -25,6 +28,7 @@ import {
   createEmptyDraft,
   validateDraftForPublish,
 } from "./draftUtils";
+import { ALL_COMPANION_TOOLS, getDefaultToolsForProfile } from "./tooling";
 import { TransformersCompanionEmbedder, type CompanionEmbedder } from "./embedder";
 import { getCoreCatalogCompanions } from "./core";
 import type { CompanionRepository } from "./repository";
@@ -44,6 +48,55 @@ const builderResultSchema = z.object({
   patch: builderPatchSchema,
 });
 
+const autoGenerateSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  instructions: z.string(),
+  bestFor: z.string(),
+  tags: z.array(z.string()),
+  conversationStarters: z.array(z.string()),
+  temperature: z.number().min(0).max(1),
+  maxSteps: z.number().int().min(10).max(250),
+  toolProfile: z.enum(["research", "interactive"]),
+  tools: z.array(
+    z.enum([
+      "read_page",
+      "get_page_text",
+      "find",
+      "click",
+      "type",
+      "press_key",
+      "navigate",
+      "screenshot",
+      "open_tab",
+      "javascript",
+    ]),
+  ),
+});
+
+const VALID_TOOL_PROFILES = new Set(["research", "interactive"]);
+const VALID_TOOLS = new Set(ALL_COMPANION_TOOLS);
+
+/** Coerce an LLM-generated spec so it passes strict Zod validation. */
+function normalizeSpecForPatch(spec: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...spec };
+
+  // Normalize toolProfile
+  if (out.toolProfile && !VALID_TOOL_PROFILES.has(out.toolProfile as string)) {
+    out.toolProfile = "research";
+  }
+
+  // Filter tools to only valid names
+  if (Array.isArray(out.tools)) {
+    const filtered = (out.tools as string[]).filter((t) => VALID_TOOLS.has(t as never));
+    out.tools = filtered.length > 0
+      ? filtered
+      : getDefaultToolsForProfile((out.toolProfile as "research" | "interactive") ?? "research");
+  }
+
+  return out;
+}
+
 function createCommunityCompanionId(): string {
   return `community-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -52,7 +105,7 @@ function createMessageId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function toCoreMessages(messages: BuilderMessage[]): CoreMessage[] {
+function toCoreMessages(messages: BuilderMessage[]): ModelMessage[] {
   return messages.map((message) => ({
     role: message.role,
     content: message.content,
@@ -108,6 +161,7 @@ export class CompanionMarketplaceService {
   constructor(
     private readonly repository: CompanionRepository = new SqliteCompanionRepository(),
     private readonly embedder: CompanionEmbedder = new TransformersCompanionEmbedder(),
+    private readonly router: LLMRouter,
   ) {}
 
   async listCompanions(): Promise<CompanionCatalogSnapshot> {
@@ -209,13 +263,14 @@ export class CompanionMarketplaceService {
       this.repository.getCommunityCompanion(companionId),
       companionId,
     );
-    const model = this.requireModel();
+    const route = this.requireMarketplaceRoute();
 
     const history = toCoreMessages(draft.builderMessages);
     const result = await generateObject({
-      model,
+      model: route.modelInstance,
       schema: builderResultSchema,
-      temperature: 0.3,
+      temperature: safeTemperatureForRoute(route, 0.3),
+      providerOptions: route.providerOptions,
       system: loadPrompt("builder/system"),
       messages: [
         {
@@ -268,7 +323,7 @@ export class CompanionMarketplaceService {
       this.repository.getCommunityCompanion(input.draftId),
       input.draftId,
     );
-    const model = this.requireModel();
+    const route = this.requireMarketplaceRoute();
     const previewSystemPrompt = composeMarketplacePrompt({
       companion: draft,
       currentDate: new Date().toISOString().split("T")[0],
@@ -277,8 +332,9 @@ export class CompanionMarketplaceService {
     });
 
     const preview = await generateText({
-      model,
-      temperature: draft.temperature,
+      model: route.modelInstance,
+      temperature: safeTemperatureForRoute(route, draft.temperature),
+      providerOptions: route.providerOptions,
       system: [previewSystemPrompt, "", loadPrompt("builder/preview")].join("\n"),
       messages: [
         ...toCoreMessages(input.messages),
@@ -354,15 +410,72 @@ export class CompanionMarketplaceService {
     return companion?.status === "published" ? companion : null;
   }
 
-  private requireModel() {
-    const provider = getProvider();
-    const modelName = getModelName(provider);
-    const model = createModel(provider, modelName);
+  async autoGenerateCompanion(description: string): Promise<CompanionDraft> {
+    const nowIso = new Date().toISOString();
+    const draft = createEmptyDraft(createCommunityCompanionId(), nowIso);
+    const savedDraft = this.repository.saveCompanion(draft) as CompanionDraft;
 
-    if (!model) {
-      throw new Error("LLM model not configured.");
+    let patch: BuilderPatch;
+    let companionName: string;
+
+    // Check if the input is already a structured spec (from orchestrator synthesis)
+    let parsedSpec: Record<string, unknown> | null = null;
+    try {
+      parsedSpec = JSON.parse(description) as Record<string, unknown>;
+      if (typeof parsedSpec !== "object" || !parsedSpec?.name) {
+        parsedSpec = null;
+      }
+    } catch {
+      parsedSpec = null;
     }
 
-    return model;
+    if (parsedSpec) {
+      // Direct spec from orchestrator — normalize and apply as patch
+      const normalized = normalizeSpecForPatch(parsedSpec);
+      patch = builderPatchSchema.parse(normalized);
+      companionName = (parsedSpec.name as string) ?? "Companion";
+    } else {
+      // Raw description — use LLM to generate
+      const route = this.requireMarketplaceRoute();
+      const result = await generateObject({
+        model: route.modelInstance,
+        schema: autoGenerateSchema,
+        temperature: safeTemperatureForRoute(route, 0.4),
+        providerOptions: route.providerOptions,
+        system: loadPrompt("builder/auto-generate"),
+        messages: [
+          { role: "user", content: description.trim() },
+        ],
+      });
+      patch = result.object;
+      companionName = result.object.name;
+    }
+
+    const updatedDraft = applyBuilderPatch(savedDraft, patch, nowIso);
+    const builderMessages: BuilderMessage[] = [
+      {
+        id: createMessageId(),
+        role: "user",
+        content: parsedSpec
+          ? `Build companion: ${companionName}`
+          : description.trim(),
+        createdAt: Date.now(),
+      },
+      {
+        id: createMessageId(),
+        role: "assistant",
+        content: `I've built your "${companionName}" companion. It's ready to preview and publish!`,
+        createdAt: Date.now(),
+      },
+    ];
+
+    return this.repository.saveCompanion({
+      ...updatedDraft,
+      builderMessages,
+    }) as CompanionDraft;
+  }
+
+  private requireMarketplaceRoute() {
+    return this.router.resolve("marketplace");
   }
 }

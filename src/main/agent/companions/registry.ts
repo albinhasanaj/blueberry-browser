@@ -127,12 +127,40 @@ const ELLA: CompanionDeclaration = {
   temperature: 0.7,
 };
 
+const ARCHER: CompanionDeclaration = {
+  id: "archer",
+  name: "Archer",
+  emoji: "🏗️",
+  role: "worker",
+  source: "core",
+  description:
+    "Companion architect who researches domains and designs fully-configured companion specifications.",
+  bestFor:
+    "Building new companions — researches best practices and creates companion specs with expert-level instructions.",
+  tags: ["companion", "builder", "architect", "research"],
+  capabilities: ["companion_building"],
+  toolset: [
+    "read_page",
+    "get_page_text",
+    "find",
+    "navigate",
+    "screenshot",
+    "open_tab",
+    "javascript",
+    "delegate",
+  ],
+  systemPrompt: workerPrompt("archer"),
+  maxSteps: 100,
+  temperature: 0.5,
+};
+
 function seedDefaults(): void {
   if (companions.size > 0) return;
   companions.set(BLUEBERRY.id, BLUEBERRY);
   companions.set(SALLY.id, SALLY);
   companions.set(CAMILLE.id, CAMILLE);
   companions.set(ELLA.id, ELLA);
+  companions.set(ARCHER.id, ARCHER);
 }
 
 seedDefaults();

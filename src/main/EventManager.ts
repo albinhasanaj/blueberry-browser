@@ -245,6 +245,15 @@ export class EventManager {
         companionId,
       );
     });
+
+    ipcMain.handle(
+      "companion-auto-generate",
+      async (_, description: string) => {
+        return await this.mainWindow.sidebar.client.marketplace.autoGenerateCompanion(
+          description,
+        );
+      },
+    );
   }
 
   private handlePageContentEvents(): void {

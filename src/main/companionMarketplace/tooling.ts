@@ -41,15 +41,10 @@ export function getDefaultToolsForProfile(
 
 export function normalizeToolList(
   tools: CompanionToolName[],
-  profile: CompanionToolProfile,
+  _profile: CompanionToolProfile,
 ): CompanionToolName[] {
   const allowed = new Set(ALL_COMPANION_TOOLS);
-  const baseTools = new Set(getDefaultToolsForProfile(profile));
+  const selected = new Set(tools.filter((t) => allowed.has(t)));
 
-  for (const tool of tools) {
-    if (!allowed.has(tool)) continue;
-    baseTools.add(tool);
-  }
-
-  return ALL_COMPANION_TOOLS.filter((tool) => baseTools.has(tool));
+  return ALL_COMPANION_TOOLS.filter((tool) => selected.has(tool));
 }

@@ -1,4 +1,4 @@
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import type {
   AgentToolEvent,
   ChatHistoryEntry,
@@ -10,7 +10,7 @@ import type {
 import { extractMessageText } from "../sessionUtils";
 
 export function hasMeaningfulSessionContent(params: {
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   toolEvents: AgentToolEvent[];
   latestRun: ChatLatestRun;
 }): boolean {
@@ -24,7 +24,7 @@ export function hasMeaningfulSessionContent(params: {
 export function createChatHistorySummary(params: {
   sessionId: string;
   sessionTitle: string;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   updatedAt: number;
 }): ChatHistoryEntry {
   const latestUserMessage = [...params.messages]
@@ -51,7 +51,7 @@ export function createChatHistorySummary(params: {
 export function createChatSessionState(params: {
   sessionId: string;
   sourcePage: ChatSourcePage | null;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   toolEvents: AgentToolEvent[];
   companionEvents: CompanionEvent[];
   latestRun: ChatLatestRun;
@@ -59,6 +59,9 @@ export function createChatSessionState(params: {
   currentWorkTabId: string | null;
   agentTabIds: Iterable<string>;
   history: ChatHistoryEntry[];
+  llmProvider: ChatSessionState["llmProvider"];
+  llmModel: string;
+  lastOpenAIResponseId: string | null;
 }): ChatSessionState {
   return {
     sessionId: params.sessionId,
@@ -71,11 +74,14 @@ export function createChatSessionState(params: {
     currentWorkTabId: params.currentWorkTabId,
     agentTabIds: Array.from(params.agentTabIds),
     history: params.history,
+    llmProvider: params.llmProvider,
+    llmModel: params.llmModel,
+    lastOpenAIResponseId: params.lastOpenAIResponseId,
   };
 }
 
 export function createConversationHistory(
-  messages: CoreMessage[],
+  messages: ModelMessage[],
   limit = 4,
 ): Array<{ role: string; content: string }> {
   return messages.slice(-limit).map((message) => ({
@@ -87,7 +93,7 @@ export function createConversationHistory(
 export function createUserMessage(
   message: string,
   screenshot: string | null,
-): CoreMessage {
+): ModelMessage {
   if (!screenshot) {
     return {
       role: "user",

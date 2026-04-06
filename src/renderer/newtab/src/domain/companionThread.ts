@@ -70,11 +70,21 @@ export function buildCompanionThreadItems(
   }
 
   const items: ThreadItem[] = [];
-  const activityBuffer = new Map<string, CompanionEvent[]>();
-  const thinkingBuffer = new Map<string, CompanionEvent>();
+  // Ordered buffer for finished companions — preserves interleaving of
+  // activity-groups and thinking blocks in chronological order.
+  const finishedBuffer = new Map<string, ThreadItem[]>();
   const messageBuffer = new Map<string, CompanionEvent[]>();
   const flushedCompanions = new Set<string>();
   const startedCompanions = new Set<string>();
+
+  function getOrCreateFinishedBuf(id: string): ThreadItem[] {
+    let buf = finishedBuffer.get(id);
+    if (!buf) {
+      buf = [];
+      finishedBuffer.set(id, buf);
+    }
+    return buf;
+  }
 
   for (const event of events) {
     if (event.type === "companion:thinking") {
@@ -84,7 +94,18 @@ export function buildCompanionThreadItems(
         finishedCompanions.has(event.fromId) &&
         !flushedCompanions.has(event.fromId)
       ) {
-        thinkingBuffer.set(event.fromId, event);
+        const buf = getOrCreateFinishedBuf(event.fromId);
+        const last = buf[buf.length - 1];
+        if (
+          last?.kind === "event" &&
+          last.event.type === "companion:thinking"
+        ) {
+          // Still in the same reasoning phase — update in place
+          last.event = event;
+        } else {
+          // New reasoning phase (after activities or first one)
+          buf.push({ kind: "event", event, finished: true });
+        }
       } else {
         const lastItem = items[items.length - 1];
         if (
@@ -106,11 +127,21 @@ export function buildCompanionThreadItems(
       startedCompanions.add(event.fromId);
 
       if (finishedCompanions.has(event.fromId)) {
-        if (!activityBuffer.has(event.fromId)) {
-          activityBuffer.set(event.fromId, []);
+        const buf = getOrCreateFinishedBuf(event.fromId);
+        const last = buf[buf.length - 1];
+        if (last?.kind === "activity-group" && last.companionId === event.fromId) {
+          // Append to existing activity group
+          last.activities.push(event);
+        } else {
+          // Start a new activity group
+          buf.push({
+            kind: "activity-group",
+            companionId: event.fromId,
+            emoji: event.fromEmoji,
+            name: event.fromName,
+            activities: [event],
+          });
         }
-
-        activityBuffer.get(event.fromId)?.push(event);
       } else {
         const tabKey = event.tabId ?? "_default";
         const existingIndex = items.findIndex(
@@ -134,22 +165,20 @@ export function buildCompanionThreadItems(
     }
 
     if (event.type === "companion:done") {
-      const bufferedActivities = activityBuffer.get(event.fromId);
-      if (bufferedActivities && bufferedActivities.length > 0) {
-        items.push({
-          kind: "activity-group",
-          companionId: event.fromId,
-          emoji: event.fromEmoji,
-          name: event.fromName,
-          activities: bufferedActivities,
-        });
-        activityBuffer.delete(event.fromId);
-      }
-
-      const bufferedThinking = thinkingBuffer.get(event.fromId);
-      if (bufferedThinking?.content.trim()) {
-        items.push({ kind: "event", event: bufferedThinking, finished: true });
-        thinkingBuffer.delete(event.fromId);
+      const buf = finishedBuffer.get(event.fromId);
+      if (buf) {
+        for (const buffered of buf) {
+          // Skip empty reasoning blocks
+          if (
+            buffered.kind === "event" &&
+            buffered.event.type === "companion:thinking" &&
+            !buffered.event.content.trim()
+          ) {
+            continue;
+          }
+          items.push(buffered);
+        }
+        finishedBuffer.delete(event.fromId);
       }
 
       items.push({ kind: "event", event });

@@ -92,6 +92,11 @@ const companionAPI = {
       "companion-publish-draft",
       companionId,
     ) as Promise<PublishedCompanion>,
+  autoGenerateCompanion: (description: string) =>
+    electronAPI.ipcRenderer.invoke(
+      "companion-auto-generate",
+      description,
+    ) as Promise<import("../shared/companionMarketplace").CompanionDraft>,
 };
 
 if (process.contextIsolated) {

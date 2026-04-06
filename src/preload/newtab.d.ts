@@ -4,6 +4,7 @@ import type {
   BuilderPatch,
   CatalogCompanion,
   CompanionCatalogSnapshot,
+  CompanionDraft,
   CompanionPreviewRequest,
   CompanionPreviewResult,
   CompanionSearchResult,
@@ -29,6 +30,9 @@ interface CompanionAPI {
   publishCompanionDraft: (
     companionId: string,
   ) => Promise<PublishedCompanion>;
+  autoGenerateCompanion: (
+    description: string,
+  ) => Promise<CompanionDraft>;
 }
 
 // Newtab uses the same sidebarAPI shape as sidebar.d.ts

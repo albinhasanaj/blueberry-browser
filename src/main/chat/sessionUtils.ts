@@ -1,4 +1,4 @@
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import type { ChatLatestRun } from "../agent/types";
 
 export const DEFAULT_SESSION_TITLE = "Blueberry";
@@ -27,7 +27,7 @@ export function deriveSessionTitle(message: string): string {
     : normalized;
 }
 
-export function extractMessageText(content: CoreMessage["content"]): string {
+export function extractMessageText(content: ModelMessage["content"]): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
 
@@ -49,8 +49,8 @@ export function extractMessageText(content: CoreMessage["content"]): string {
     .trim();
 }
 
-export function stripOldScreenshots(messages: CoreMessage[]): CoreMessage[] {
-  return messages.map((message): CoreMessage => {
+export function stripOldScreenshots(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((message): ModelMessage => {
     if (message.role !== "user" || typeof message.content === "string") {
       return message;
     }

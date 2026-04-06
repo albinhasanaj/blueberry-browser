@@ -1,13 +1,7 @@
 import { WebContents } from "electron";
-import type { LanguageModel } from "ai";
 import type { Tab } from "./Tab";
 import type { Window } from "./Window";
-import {
-  createModel,
-  getModelName,
-  getProvider,
-  logInitializationStatus,
-} from "./agent/modelProvider";
+import { LLMRouter } from "./agent/llmRouter";
 import type {
   ChatHistoryEntry,
   ChatRequest,
@@ -19,8 +13,12 @@ import { CompanionMarketplaceService } from "./companionMarketplace/service";
 
 export class LLMClient {
   private window: Window | null = null;
-  private readonly model: LanguageModel | null;
-  private readonly marketplaceService = new CompanionMarketplaceService();
+  private readonly router = new LLMRouter();
+  private readonly marketplaceService = new CompanionMarketplaceService(
+    undefined,
+    undefined,
+    this.router,
+  );
   private readonly sessions = new Map<string, ChatSessionController>();
   private readonly listenerSessions = new Map<number, string>();
   private readonly chatTabSessions = new Map<string, string>();
@@ -30,7 +28,7 @@ export class LLMClient {
   private readonly sidebarSessionId: string;
 
   constructor(sidebarWebContents: WebContents) {
-    this.model = this.initializeModel();
+    this.router.logInitializationStatus();
 
     const sidebarSession = this.createSession("sidebar", "sidebar-session");
     this.sidebarSessionId = sidebarSession.id;
@@ -136,21 +134,13 @@ export class LLMClient {
     }
   }
 
-  private initializeModel(): LanguageModel | null {
-    const provider = getProvider();
-    const modelName = getModelName(provider);
-    const model = createModel(provider, modelName);
-    logInitializationStatus(provider, modelName, model);
-    return model;
-  }
-
   private createSession(kind: SessionKind, id?: string): ChatSessionController {
     const sessionId = id ?? `session-${++this.sessionCounter}`;
     const session = new ChatSessionController(
       this,
       sessionId,
       kind,
-      this.model,
+      this.router,
       this.marketplaceService,
     );
     if (this.window) {

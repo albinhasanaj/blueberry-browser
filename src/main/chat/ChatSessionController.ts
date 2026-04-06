@@ -1,10 +1,11 @@
 import { WebContents } from "electron";
-import { type CoreMessage, type LanguageModel } from "ai";
+import { type ModelMessage } from "ai";
 import type { Tab } from "../Tab";
 import {
   type BrowserToolDeps,
   type ToolCallRef,
 } from "../agent/browserToolRuntime";
+import type { LLMRouter } from "../agent/llmRouter";
 import { endTraceRun, startTraceRun, trace } from "../agent/traceLogger";
 import {
   type AgentToolEvent,
@@ -52,7 +53,7 @@ export class ChatSessionController {
   private readonly tabs = new TabTracker();
   private readonly overlay = new OverlayManager();
   private readonly listeners: Set<WebContents> = new Set();
-  private messages: CoreMessage[] = [];
+  private messages: ModelMessage[] = [];
   private toolEvents: AgentToolEvent[] = [];
   private companionEvents: CompanionEvent[] = [];
   private sourcePage: ChatSourcePage | null = null;
@@ -63,12 +64,13 @@ export class ChatSessionController {
   private turnIndex = -1;
   private updatedAt = Date.now();
   private activeCompanionName = "Blueberry";
+  private lastOpenAIResponseId: string | null = null;
 
   constructor(
     private readonly owner: ChatSessionOwner,
     readonly id: string,
     readonly kind: SessionKind,
-    private readonly model: LanguageModel | null,
+    private readonly router: LLMRouter,
     private readonly marketplaceService: CompanionMarketplaceService,
   ) {}
 
@@ -141,13 +143,6 @@ export class ChatSessionController {
     try {
       this.appendUserMessage(await this.createUserMessage(request.message));
 
-      if (!this.model) {
-        this.sendErrorMessage(
-          "LLM service is not configured. Please add your API key to the .env file.",
-        );
-        return;
-      }
-
       await this.runCompanionOrchestration(request.message);
       return;
     } catch (error) {
@@ -181,6 +176,7 @@ export class ChatSessionController {
     this.sourcePage = null;
     this.latestRun = createEmptyLatestRun();
     this.sessionTitle = DEFAULT_SESSION_TITLE;
+    this.lastOpenAIResponseId = null;
     this.turnIndex = -1;
     this.tabs.clearAll();
     this.touch();
@@ -201,6 +197,9 @@ export class ChatSessionController {
       currentWorkTabId: this.tabs.currentWorkTabId,
       agentTabIds: this.tabs.agentTabIds,
       history: this.owner.getHistoryEntries(this.id),
+      llmProvider: this.router.getActiveRouteInfo().provider,
+      llmModel: this.router.getActiveRouteInfo().model,
+      lastOpenAIResponseId: this.lastOpenAIResponseId,
     });
   }
 
@@ -267,12 +266,12 @@ export class ChatSessionController {
     this.broadcastSessionState();
   }
 
-  private async createUserMessage(message: string): Promise<CoreMessage> {
+  private async createUserMessage(message: string): Promise<ModelMessage> {
     const screenshot = await this.captureScreenshot();
     return createUserTurnMessage(message, screenshot);
   }
 
-  private appendUserMessage(message: CoreMessage): void {
+  private appendUserMessage(message: ModelMessage): void {
     this.messages.push(message);
     this.touch();
     this.broadcastSessionState();
@@ -294,17 +293,26 @@ export class ChatSessionController {
 
   private async runCompanionOrchestration(userMessage: string): Promise<void> {
     const history = createConversationHistory(this.messages);
+    const routeInfo = this.router.getActiveRouteInfo();
 
     await runOrchestration({
       userMessage,
       deps: this.createBrowserToolDeps(),
+      router: this.router,
+      llmProvider: routeInfo.provider,
+      llmModel: routeInfo.model,
+      previousOpenAIResponseId: this.lastOpenAIResponseId,
       onCompanionEvent: (event) => {
         this.companionEvents.push({ ...event, turnIndex: this.turnIndex });
         this.touch();
         this.broadcastSessionState();
       },
-      onFinalResponse: (text) => {
-        this.messages.push({ role: "assistant", content: text });
+      onFinalResponse: (payload) => {
+        this.messages.push({ role: "assistant", content: payload.text });
+        this.lastOpenAIResponseId =
+          routeInfo.provider === "openai"
+            ? payload.responseId ?? null
+            : null;
         this.completeRun("completed");
       },
       abortSignal: this.abortController?.signal,

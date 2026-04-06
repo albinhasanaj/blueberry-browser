@@ -128,7 +128,7 @@ const CompanionEventsFeed: React.FC<{
           <ChevronRight className="size-3" />
         )}
         <span className="font-medium">
-          Companion reasoning (
+          Companion trace (
           {
             companionEvents.filter(
               (event) => event.type === "companion:message",

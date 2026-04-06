@@ -57,6 +57,9 @@ export interface ChatSessionState {
   currentWorkTabId: string | null;
   agentTabIds: string[];
   history: ChatHistoryEntry[];
+  llmProvider: "openai" | "anthropic";
+  llmModel: string;
+  lastOpenAIResponseId: string | null;
 }
 
 export const EMPTY_RUN: LatestRun = {
