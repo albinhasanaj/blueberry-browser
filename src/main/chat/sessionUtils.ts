@@ -1,7 +1,7 @@
 import type { CoreMessage } from "ai";
 import type { ChatLatestRun } from "../agent/types";
 
-export const DEFAULT_SESSION_TITLE = "Untitled";
+export const DEFAULT_SESSION_TITLE = "Blueberry";
 
 export type SessionKind = "chat" | "sidebar";
 

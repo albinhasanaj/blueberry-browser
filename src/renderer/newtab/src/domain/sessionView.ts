@@ -34,5 +34,5 @@ export function hasSessionContent(
 }
 
 export function getSessionTitle(title: string | null | undefined): string {
-  return title?.trim() || "Untitled";
+  return title?.trim() || "Blueberry";
 }

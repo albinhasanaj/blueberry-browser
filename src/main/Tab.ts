@@ -33,7 +33,7 @@ export class Tab {
     this._kind = options.kind ?? (options.url ? "web" : "chat");
     this._isAgentControlled = options.isAgentControlled ?? false;
     this._url = this._kind === "chat" ? NEWTAB_URL : (options.url ?? "about:blank");
-    this._title = this._kind === "chat" ? "Untitled" : "New Tab";
+    this._title = this._kind === "chat" ? "Blueberry" : "New Tab";
 
     if (this._kind === "chat") {
       // Chat-tab mode: preload with chat IPC access

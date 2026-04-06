@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { Globe, Plus, Square } from "lucide-react";
+import { Globe, Square } from "lucide-react";
 import { AssistantMessage, BlueberryMascot } from "@common/components/chat";
 import type { AgentToolEvent, Message } from "@common/components/chat/types";
 import type { CompanionEvent, SourcePage } from "@common/types/chatSession";
@@ -7,14 +7,6 @@ import { groupCompanionEventsByTurn } from "../domain/companionThread";
 import { getFaviconUrl, getHostname } from "../domain/sessionView";
 import { CompanionThread } from "./CompanionThread";
 import { TaskComposer } from "./TaskComposer";
-
-const HeaderPill: React.FC = () => (
-  <div className="inline-flex items-center gap-3 rounded-2xl bg-black/[0.08] px-4 py-3 text-white/70">
-    <BlueberryMascot className="size-4.5" />
-    <BlueberryMascot className="size-4.5" />
-    <Plus className="size-4" />
-  </div>
-);
 
 const SourcePageCard: React.FC<{ sourcePage: SourcePage }> = ({
   sourcePage,
@@ -75,8 +67,6 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   title,
 }) => (
   <div className="flex h-full flex-col items-center justify-center px-6">
-    <HeaderPill />
-
     <div className="mt-24 flex flex-col items-center">
       <BlueberryMascot className="size-16" />
       <div className="mt-4 text-sm text-white/55">{title}</div>
@@ -132,10 +122,6 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
     <>
       <div className="h-full overflow-y-auto">
         <div className="mx-auto flex min-h-full max-w-[760px] flex-col px-6 pb-44 pt-10">
-          <div className="flex justify-center">
-            <HeaderPill />
-          </div>
-
           <div className="mt-10 space-y-5">
             {sourcePage && (
               <div className="flex justify-end">

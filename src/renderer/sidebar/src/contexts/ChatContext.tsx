@@ -48,7 +48,7 @@ const DEFAULT_STATE: ChatSessionState = {
   toolEvents: [],
   companionEvents: [],
   latestRun: EMPTY_RUN,
-  sessionTitle: "Untitled",
+  sessionTitle: "Blueberry",
   currentWorkTabId: null,
   agentTabIds: [],
   history: [],

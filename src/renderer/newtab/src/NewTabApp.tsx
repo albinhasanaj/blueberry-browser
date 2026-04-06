@@ -45,7 +45,7 @@ const NewTabContent: React.FC = () => {
     visibleMessages,
   } = useNewTabController();
 
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("browse");
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("chat");
   const [catalog, setCatalog] = useState<CompanionCatalogSnapshot>(EMPTY_CATALOG);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -65,11 +65,7 @@ const NewTabContent: React.FC = () => {
     [catalog.drafts, selectedDraftId],
   );
 
-  useEffect(() => {
-    if (!hasSessionContent && workspaceMode === "chat") {
-      setWorkspaceMode("browse");
-    }
-  }, [hasSessionContent, workspaceMode]);
+  // Keep chat mode accessible even without session content (shows EmptyState)
 
   useEffect(() => {
     const loadCatalog = async (): Promise<void> => {
@@ -299,7 +295,7 @@ const NewTabContent: React.FC = () => {
         hasChatSession={hasSessionContent}
         history={history}
         isHistoryOpen={isHistoryOpen}
-        onShowChat={() => setWorkspaceMode(hasSessionContent ? "chat" : "browse")}
+        onShowChat={() => setWorkspaceMode("chat")}
         onShowBrowse={() => setWorkspaceMode("browse")}
         onShowBuild={() => setWorkspaceMode("build")}
         onToggleHistory={toggleHistory}
@@ -316,16 +312,24 @@ const NewTabContent: React.FC = () => {
           </div>
         )}
 
-        {workspaceMode === "chat" && hasSessionContent ? (
-          <ActiveSessionView
-            messages={visibleMessages}
-            isLoading={isLoading}
-            toolEvents={toolEvents}
-            companionEvents={companionEvents}
-            sendMessage={sendMessage}
-            stopAgent={stopAgent}
-            sourcePage={sourcePage}
-          />
+        {workspaceMode === "chat" ? (
+          hasSessionContent ? (
+            <ActiveSessionView
+              messages={visibleMessages}
+              isLoading={isLoading}
+              toolEvents={toolEvents}
+              companionEvents={companionEvents}
+              sendMessage={sendMessage}
+              stopAgent={stopAgent}
+              sourcePage={sourcePage}
+            />
+          ) : (
+            <EmptyState
+              sendMessage={sendMessage}
+              isLoading={isLoading}
+              title={title}
+            />
+          )
         ) : workspaceMode === "build" ? (
           <CompanionBuilderView
             drafts={catalog.drafts}
@@ -356,13 +360,7 @@ const NewTabContent: React.FC = () => {
             onSearchQueryChange={setSearchQuery}
             onOpenBuilder={() => setWorkspaceMode("build")}
           />
-        ) : (
-          <EmptyState
-            sendMessage={sendMessage}
-            isLoading={isLoading}
-            title={title}
-          />
-        )}
+        ) : null}
       </main>
     </div>
   );
