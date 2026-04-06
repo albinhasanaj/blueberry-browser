@@ -32,7 +32,7 @@ export class TabTracker {
     const tab = this._window.createTab({
       kind: "web",
       url,
-      activate: true,
+      activate: false,
       isAgentControlled: true,
     });
     this.markAsAgentControlled(tab.id);

@@ -77,8 +77,9 @@ const SHADOW_CSS = `
 // Injection script — runs inside the target page
 // ---------------------------------------------------------------------------
 
-function buildInjectionScript(actionText: string): string {
+function buildInjectionScript(actionText: string, companionName = "Blueberry"): string {
   const textVal = JSON.stringify(actionText);
+  const nameVal = JSON.stringify(`Controlled by ${companionName}`);
   const cssOutline = JSON.stringify(OUTLINE_CSS);
   const cssShadow = JSON.stringify(SHADOW_CSS);
 
@@ -137,7 +138,7 @@ try{
   icon.textContent='\\u{1FAD0}';
   var title=document.createElement('span');
   title.className='hdr-text';
-  title.textContent='Controlled by Blueberry';
+  title.textContent=${nameVal};
   hdr.appendChild(icon);
   hdr.appendChild(title);
   card.appendChild(hdr);
@@ -178,9 +179,10 @@ try{
 export async function injectOverlay(
   wc: WebContents,
   actionText: string,
+  companionName?: string,
 ): Promise<void> {
   try {
-    await wc.executeJavaScript(buildInjectionScript(actionText));
+    await wc.executeJavaScript(buildInjectionScript(actionText, companionName));
   } catch {
     // Page may not be ready or is navigating
   }
@@ -193,6 +195,7 @@ export async function injectOverlay(
 export async function updateOverlayAction(
   wc: WebContents,
   actionText: string,
+  companionName?: string,
 ): Promise<void> {
   const textVal = JSON.stringify(actionText);
   try {
@@ -201,15 +204,17 @@ export async function updateOverlayAction(
       `(function(){var h=document.getElementById('${ISLAND_ID}');return !!(h&&h.shadowRoot&&h.shadowRoot.getElementById('__bb_action'))})()`,
     );
     if (!exists) {
-      await injectOverlay(wc, actionText);
+      await injectOverlay(wc, actionText, companionName);
       return;
     }
+    // Update both the action text and the header name
+    const nameVal = JSON.stringify(`Controlled by ${companionName ?? "Blueberry"}`);
     await wc.executeJavaScript(
-      `(function(){var h=document.getElementById('${ISLAND_ID}');if(h&&h.shadowRoot){var a=h.shadowRoot.getElementById('__bb_action');if(a)a.textContent=${textVal}}})()`,
+      `(function(){var h=document.getElementById('${ISLAND_ID}');if(h&&h.shadowRoot){var a=h.shadowRoot.getElementById('__bb_action');if(a)a.textContent=${textVal};var t=h.shadowRoot.querySelector('.hdr-text');if(t)t.textContent=${nameVal}}})()`,
     );
   } catch {
     try {
-      await injectOverlay(wc, actionText);
+      await injectOverlay(wc, actionText, companionName);
     } catch {
       // silent
     }

@@ -4,6 +4,7 @@ import { Window } from "./Window";
 import { AppMenu } from "./Menu";
 import { EventManager } from "./EventManager";
 import { initDb } from "./agent/blueprintDb";
+import { initCompanionDb } from "./companionMarketplace/db";
 
 let mainWindow: Window | null = null;
 let eventManager: EventManager | null = null;
@@ -20,6 +21,7 @@ app.whenReady().then(() => {
   electronApp.setAppUserModelId("com.electron");
 
   initDb();
+  initCompanionDb();
   mainWindow = createWindow();
 
   app.on("activate", () => {

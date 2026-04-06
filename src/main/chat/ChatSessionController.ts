@@ -1,17 +1,10 @@
 import { WebContents } from "electron";
-import {
-  type CoreMessage,
-  type LanguageModel,
-} from "ai";
+import { type CoreMessage, type LanguageModel } from "ai";
 import type { Tab } from "../Tab";
-import { type BrowserToolDeps } from "../agent/browserTools";
-
 import {
-  injectOverlay,
-  formatToolAction,
-  updateOverlayAction,
-} from "../agent/pageOverlay";
-
+  type BrowserToolDeps,
+  type ToolCallRef,
+} from "../agent/browserToolRuntime";
 import { endTraceRun, startTraceRun, trace } from "../agent/traceLogger";
 import {
   type AgentToolEvent,
@@ -21,19 +14,33 @@ import {
   type ChatSessionState,
   type ChatSourcePage,
   type CompanionEvent,
-  SCREENSHOT_JPEG_QUALITY,
 } from "../agent/types";
 import { runOrchestration } from "../agent/companions/orchestrator";
 import {
   DEFAULT_SESSION_TITLE,
   deriveSessionTitle,
-  extractMessageText,
   getErrorMessage,
   createEmptyLatestRun,
   type SessionKind,
 } from "./sessionUtils";
 import { OverlayManager } from "./overlayManager";
 import { TabTracker } from "./tabTracker";
+import { syncOverlayForToolEvent } from "./controller/overlaySync";
+import { captureTabScreenshot } from "./controller/screenshot";
+import {
+  createChatHistorySummary,
+  createChatSessionState,
+  createConversationHistory,
+  createUserMessage as createUserTurnMessage,
+  hasMeaningfulSessionContent,
+} from "./controller/sessionState";
+import {
+  applyToolRunProgress,
+  createAgentToolEvent,
+  createToolCallRef,
+  upsertToolEvent,
+} from "./controller/toolEvents";
+import type { CompanionMarketplaceService } from "../companionMarketplace/service";
 
 export interface ChatSessionOwner {
   notifyHistoryChanged(originSessionId?: string): void;
@@ -55,17 +62,15 @@ export class ChatSessionController {
   private toolStepIndex = 0;
   private turnIndex = -1;
   private updatedAt = Date.now();
+  private activeCompanionName = "Blueberry";
 
   constructor(
     private readonly owner: ChatSessionOwner,
     readonly id: string,
     readonly kind: SessionKind,
     private readonly model: LanguageModel | null,
+    private readonly marketplaceService: CompanionMarketplaceService,
   ) {}
-
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
 
   setWindow(window: import("../Window").Window): void {
     this.tabs.setWindow(window);
@@ -93,33 +98,20 @@ export class ChatSessionController {
   }
 
   hasMeaningfulContent(): boolean {
-    return (
-      this.messages.length > 0 ||
-      this.toolEvents.length > 0 ||
-      this.latestRun.status !== "idle"
-    );
+    return hasMeaningfulSessionContent({
+      messages: this.messages,
+      toolEvents: this.toolEvents,
+      latestRun: this.latestRun,
+    });
   }
 
   getSummary(): ChatHistoryEntry {
-    const latestUserMessage = [...this.messages]
-      .reverse()
-      .find((message) => message.role === "user");
-    const latestAssistantMessage = [...this.messages]
-      .reverse()
-      .find((message) => message.role === "assistant");
-
-    const preview =
-      (latestUserMessage && extractMessageText(latestUserMessage.content)) ||
-      (latestAssistantMessage &&
-        extractMessageText(latestAssistantMessage.content)) ||
-      null;
-
-    return {
+    return createChatHistorySummary({
       sessionId: this.id,
-      title: this.sessionTitle,
-      preview,
+      sessionTitle: this.sessionTitle,
+      messages: this.messages,
       updatedAt: this.updatedAt,
-    };
+    });
   }
 
   stopAgent(): void {
@@ -198,18 +190,18 @@ export class ChatSessionController {
   }
 
   getSessionState(): ChatSessionState {
-    return {
+    return createChatSessionState({
       sessionId: this.id,
-      sourcePage: this.sourcePage ? { ...this.sourcePage } : null,
-      messages: [...this.messages],
-      toolEvents: [...this.toolEvents],
-      companionEvents: [...this.companionEvents],
-      latestRun: { ...this.latestRun },
+      sourcePage: this.sourcePage,
+      messages: this.messages,
+      toolEvents: this.toolEvents,
+      companionEvents: this.companionEvents,
+      latestRun: this.latestRun,
       sessionTitle: this.sessionTitle,
       currentWorkTabId: this.tabs.currentWorkTabId,
-      agentTabIds: Array.from(this.tabs.agentTabIds),
+      agentTabIds: this.tabs.agentTabIds,
       history: this.owner.getHistoryEntries(this.id),
-    };
+    });
   }
 
   onTabClosed(tabId: string): void {
@@ -233,6 +225,7 @@ export class ChatSessionController {
 
   broadcastSessionState(): void {
     const state = this.getSessionState();
+
     for (const wc of this.listeners) {
       try {
         wc.send("chat-session-updated", state);
@@ -249,10 +242,6 @@ export class ChatSessionController {
       this.listeners.delete(wc);
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Run lifecycle
-  // ---------------------------------------------------------------------------
 
   private startRun(taskMessage: string): void {
     this.abortController = new AbortController();
@@ -278,25 +267,9 @@ export class ChatSessionController {
     this.broadcastSessionState();
   }
 
-  // ---------------------------------------------------------------------------
-  // Messages
-  // ---------------------------------------------------------------------------
-
   private async createUserMessage(message: string): Promise<CoreMessage> {
     const screenshot = await this.captureScreenshot();
-    const userContent: Array<
-      { type: "image"; image: string } | { type: "text"; text: string }
-    > = [];
-
-    if (screenshot) {
-      userContent.push({ type: "image", image: screenshot });
-    }
-    userContent.push({ type: "text", text: message });
-
-    return {
-      role: "user",
-      content: userContent.length === 1 ? message : userContent,
-    };
+    return createUserTurnMessage(message, screenshot);
   }
 
   private appendUserMessage(message: CoreMessage): void {
@@ -319,16 +292,8 @@ export class ChatSessionController {
     this.completeRun("error");
   }
 
-  // ---------------------------------------------------------------------------
-  // Companion orchestration
-  // ---------------------------------------------------------------------------
-
   private async runCompanionOrchestration(userMessage: string): Promise<void> {
-    // Build conversation history from last 4 messages for context
-    const history = this.messages.slice(-4).map((m) => ({
-      role: m.role,
-      content: extractMessageText(m.content),
-    }));
+    const history = createConversationHistory(this.messages);
 
     await runOrchestration({
       userMessage,
@@ -344,12 +309,14 @@ export class ChatSessionController {
       },
       abortSignal: this.abortController?.signal,
       conversationHistory: history,
+      marketplaceService: this.marketplaceService,
     });
   }
 
   private createBrowserToolDeps(): BrowserToolDeps {
     return {
       getWorkTab: () => this.tabs.getCurrentWorkTabOrThrow(),
+      getTabById: (tabId: string) => this.tabs.window?.getTab(tabId) ?? null,
       captureScreenshot: () => this.captureScreenshot(),
       emitToolEvent: (...args) => this.emitToolEvent(...args),
       openTab: (url?: string) => {
@@ -358,12 +325,11 @@ export class ChatSessionController {
         return tab;
       },
       hasWorkTab: () => this.tabs.getCurrentWorkTab() !== null,
+      setActiveCompanion: (companion) => {
+        this.activeCompanionName = companion.name;
+      },
     };
   }
-
-  // ---------------------------------------------------------------------------
-  // Tool events
-  // ---------------------------------------------------------------------------
 
   private emitToolEvent(
     toolName: string,
@@ -371,99 +337,49 @@ export class ChatSessionController {
     status: AgentToolEvent["status"],
     result?: string,
     error?: string,
-    ref?: { stepIndex: number; callId: string },
-  ): { stepIndex: number; callId: string } {
-    if (status === "started") this.toolStepIndex++;
+    ref?: ToolCallRef,
+  ): ToolCallRef {
+    if (status === "started") {
+      this.toolStepIndex++;
+    }
+
     const stepIndex = ref?.stepIndex ?? this.toolStepIndex;
-    const callId =
-      ref?.callId ??
-      `${stepIndex}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const event: AgentToolEvent = {
+    const callRef = createToolCallRef(stepIndex, ref);
+    const event = createAgentToolEvent({
       toolName,
       input,
       status,
+      turnIndex: this.turnIndex,
+      ref: callRef,
       result,
       error,
-      stepIndex,
-      callId,
+    });
+
+    upsertToolEvent(this.toolEvents, event);
+    this.latestRun = applyToolRunProgress({
+      latestRun: this.latestRun,
+      toolEvents: this.toolEvents,
       turnIndex: this.turnIndex,
-    };
-
-    const existingIndex = this.toolEvents.findIndex(
-      (item) => item.callId === callId,
-    );
-    if (existingIndex >= 0) {
-      this.toolEvents[existingIndex] = event;
-    } else {
-      this.toolEvents.push(event);
-    }
-
-    this.latestRun = {
-      ...this.latestRun,
-      stepCount: this.toolEvents.filter((e) => e.turnIndex === this.turnIndex).length,
-      completedStepCount: this.toolEvents.filter(
-        (item) => item.turnIndex === this.turnIndex && item.status === "completed",
-      ).length,
-      errorCount: this.toolEvents.filter(
-        (item) => item.turnIndex === this.turnIndex && item.status === "error",
-      ).length,
-    };
+    });
     this.touch();
     this.broadcastSessionState();
 
-    const tab = this.tabs.getCurrentWorkTab();
-    if (tab && !tab.isNewTab) {
-      if (status === "started") {
-        const actionText = formatToolAction(toolName, input);
-        updateOverlayAction(tab.webContents, actionText).catch(() => {});
-        this.overlay.setupStopHandler(tab.webContents, () => {
-          this.stopAgent();
-          this.overlay.cleanup();
-        });
-      } else if (status === "completed") {
-        const isNavigationTool = toolName === "navigate" || toolName === "open_tab";
-        if (isNavigationTool) {
-          const wc = tab.webContents;
-          const reinject = (): void => {
-            if (this.abortController) {
-              injectOverlay(wc, "Working\u2026").catch(() => {});
-              this.overlay.setupStopHandler(wc, () => {
-                this.stopAgent();
-                this.overlay.cleanup();
-              });
-            }
-          };
-          wc.once("did-finish-load", reinject);
-        }
-      }
-    }
+    syncOverlayForToolEvent({
+      toolName,
+      input,
+      status,
+      tabs: this.tabs,
+      overlay: this.overlay,
+      activeCompanionName: this.activeCompanionName,
+      stopAgent: () => this.stopAgent(),
+      isRunActive: () => this.abortController !== null,
+    });
 
-    return { stepIndex, callId };
+    return callRef;
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
   private async captureScreenshot(): Promise<string | null> {
-    const workTab = this.tabs.getCurrentWorkTab();
-    if (!workTab || workTab.isNewTab) return null;
-
-    try {
-      const image = await workTab.screenshot();
-      const jpegBuffer = image.toJPEG(SCREENSHOT_JPEG_QUALITY);
-      return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
-    } catch (error) {
-      // "Current display surface not available" is normal when the tab isn't
-      // visible (e.g. minimized, behind another window). Don't log a stack trace.
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("display surface")) {
-        console.warn("[screenshot] Display surface unavailable -- skipping");
-      } else {
-        console.error("Failed to capture screenshot:", error);
-      }
-      return null;
-    }
+    return await captureTabScreenshot(this.tabs.getCurrentWorkTab());
   }
 
   private touch(): void {

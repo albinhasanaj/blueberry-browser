@@ -15,10 +15,12 @@ import type {
 } from "./agent/types";
 import { ChatSessionController } from "./chat/ChatSessionController";
 import { DEFAULT_SESSION_TITLE, type SessionKind } from "./chat/sessionUtils";
+import { CompanionMarketplaceService } from "./companionMarketplace/service";
 
 export class LLMClient {
   private window: Window | null = null;
   private readonly model: LanguageModel | null;
+  private readonly marketplaceService = new CompanionMarketplaceService();
   private readonly sessions = new Map<string, ChatSessionController>();
   private readonly listenerSessions = new Map<number, string>();
   private readonly chatTabSessions = new Map<string, string>();
@@ -144,12 +146,22 @@ export class LLMClient {
 
   private createSession(kind: SessionKind, id?: string): ChatSessionController {
     const sessionId = id ?? `session-${++this.sessionCounter}`;
-    const session = new ChatSessionController(this, sessionId, kind, this.model);
+    const session = new ChatSessionController(
+      this,
+      sessionId,
+      kind,
+      this.model,
+      this.marketplaceService,
+    );
     if (this.window) {
       session.setWindow(this.window);
     }
     this.sessions.set(sessionId, session);
     return session;
+  }
+
+  get marketplace(): CompanionMarketplaceService {
+    return this.marketplaceService;
   }
 
   private resolveChatSession(sessionId?: string): ChatSessionController | null {

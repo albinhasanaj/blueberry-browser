@@ -1,18 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { ArrowUp, Clock3, Plus, X } from "lucide-react";
-import { useChat } from "../contexts/ChatContext";
 import { AssistantMessage, BlueberryMascot } from "@common/components/chat";
+import { formatHistoryTimestamp } from "@common/lib/chatSession";
 import { cn } from "@common/lib/utils";
-
-function formatHistoryTimestamp(updatedAt: number): string {
-  const diffMinutes = Math.max(0, Math.round((Date.now() - updatedAt) / 60000));
-  if (diffMinutes < 1) return "Just now";
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.round(diffHours / 24);
-  return `${diffDays}d ago`;
-}
+import { useChat } from "../contexts/ChatContext";
 
 const SidebarComposer: React.FC<{
   disabled: boolean;
@@ -20,7 +11,7 @@ const SidebarComposer: React.FC<{
 }> = ({ disabled, onSend }) => {
   const [value, setValue] = useState("");
 
-  const submit = async () => {
+  const submit = async (): Promise<void> => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
     await onSend(trimmed);
@@ -52,13 +43,6 @@ const SidebarComposer: React.FC<{
         </button>
 
         <div className="flex items-center gap-2">
-          {/* <div className="text-xs font-medium text-lime-300">Smart</div> */}
-          {/* <button
-            type="button"
-            className="flex size-8 items-center justify-center rounded-full bg-black/20 text-white/75"
-          >
-            <BlueberryMascot className="size-4.5" />
-          </button> */}
           <button
             type="button"
             onClick={() => void submit()}
@@ -81,7 +65,9 @@ export const Chat: React.FC = () => {
     () =>
       [...messages]
         .reverse()
-        .find((message) => message.role === "assistant" && message.content.trim()),
+        .find(
+          (message) => message.role === "assistant" && message.content.trim(),
+        ),
     [messages],
   );
 
@@ -199,7 +185,9 @@ export const Chat: React.FC = () => {
         )}
       </div>
 
-      <div className={cn("border-t border-white/6 p-4", isLoading && "opacity-90")}>
+      <div
+        className={cn("border-t border-white/6 p-4", isLoading && "opacity-90")}
+      >
         <SidebarComposer disabled={isLoading} onSend={sendMessage} />
       </div>
     </div>

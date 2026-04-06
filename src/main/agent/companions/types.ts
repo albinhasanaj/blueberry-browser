@@ -12,6 +12,10 @@ export interface CompanionDeclaration {
   name: string;
   emoji: string;
   role: CompanionRole;
+  source?: "core" | "community";
+  description?: string;
+  bestFor?: string;
+  tags?: string[];
   capabilities: CompanionCapability[];
   toolset: string[];
   systemPrompt: string;
@@ -41,13 +45,21 @@ export interface CompanionEvent {
   turnIndex?: number;
   /** Activity label shown during streaming, e.g. "browsing linkedin.com", "analyzing data" */
   activity?: string;
+  /** Tab ID this activity is targeting (for parallel tab visualization) */
+  tabId?: string;
+  /** Short hostname of the tab URL */
+  tabUrl?: string;
 }
 
 export interface CompanionRunResult {
   companionId: string;
+  companionName?: string;
+  companionKind?: "core" | "marketplace";
   structuredOutput: unknown;
   rawText: string;
   messages: CompanionMessage[];
   success: boolean;
   error?: string;
+  toolCallCount?: number;
+  maxSteps?: number;
 }

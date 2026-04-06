@@ -15,6 +15,7 @@ export class EventManager {
 
     // Sidebar events
     this.handleSidebarEvents();
+    this.handleCompanionEvents();
 
     // Page content events
     this.handlePageContentEvents();
@@ -193,6 +194,56 @@ export class EventManager {
 
     ipcMain.handle("sidebar-open-chat-session", (event, sessionId: string) => {
       return this.mainWindow.sidebar.client.openChatSession(event.sender, sessionId);
+    });
+  }
+
+  private handleCompanionEvents(): void {
+    ipcMain.handle("companion-list", async () => {
+      return await this.mainWindow.sidebar.client.marketplace.listCompanions();
+    });
+
+    ipcMain.handle("companion-search", async (_, query: string) => {
+      return await this.mainWindow.sidebar.client.marketplace.searchCompanions(query);
+    });
+
+    ipcMain.handle("companion-get", async (_, companionId: string) => {
+      return await this.mainWindow.sidebar.client.marketplace.getCompanion(companionId);
+    });
+
+    ipcMain.handle("companion-create-draft", async () => {
+      return await this.mainWindow.sidebar.client.marketplace.createDraftCompanion();
+    });
+
+    ipcMain.handle(
+      "companion-update-draft",
+      async (_, companionId: string, patch: unknown) => {
+        return await this.mainWindow.sidebar.client.marketplace.updateDraftCompanion(
+          companionId,
+          patch as never,
+        );
+      },
+    );
+
+    ipcMain.handle(
+      "companion-builder-chat",
+      async (_, companionId: string, message: string) => {
+        return await this.mainWindow.sidebar.client.marketplace.chatCompanionBuilder(
+          companionId,
+          message,
+        );
+      },
+    );
+
+    ipcMain.handle("companion-preview-draft", async (_, input: unknown) => {
+      return await this.mainWindow.sidebar.client.marketplace.previewCompanionDraft(
+        input as never,
+      );
+    });
+
+    ipcMain.handle("companion-publish-draft", async (_, companionId: string) => {
+      return await this.mainWindow.sidebar.client.marketplace.publishCompanionDraft(
+        companionId,
+      );
     });
   }
 

@@ -1,32 +1,9 @@
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Square } from "lucide-react";
-import { AgentToolStep } from "./AgentToolStep";
+import { Check, ChevronDown, ChevronRight, Square } from "lucide-react";
+import type { AgentToolEvent } from "@common/components/chat/types";
 import { cn } from "@common/lib/utils";
-
-interface AgentToolEvent {
-  toolName: string;
-  input: Record<string, unknown>;
-  status: "started" | "completed" | "error";
-  result?: string;
-  error?: string;
-  stepIndex: number;
-  callId: string;
-  turnIndex?: number;
-}
-
-interface CompanionEvent {
-  type: "companion:message" | "companion:thinking" | "companion:done" | "companion:activity";
-  fromId: string;
-  fromName: string;
-  fromEmoji: string;
-  toId?: string;
-  toName?: string;
-  content: string;
-  timestamp: number;
-  activity?: string;
-  isFinal?: boolean;
-  turnIndex?: number;
-}
+import type { CompanionEvent } from "@common/types/chatSession";
+import { AgentToolStep } from "./AgentToolStep";
 
 const COMPANION_COLORS: Record<string, { bg: string; border: string }> = {
   blueberry: {
@@ -47,14 +24,21 @@ const COMPANION_COLORS: Record<string, { bg: string; border: string }> = {
   },
 };
 
-function getCompanionStyle(companionId: string): { bg: string; border: string } {
-  return COMPANION_COLORS[companionId] ?? {
-    bg: "bg-muted/30",
-    border: "border-border/30",
-  };
+function getCompanionStyle(companionId: string): {
+  bg: string;
+  border: string;
+} {
+  return (
+    COMPANION_COLORS[companionId] ?? {
+      bg: "bg-muted/30",
+      border: "border-border/30",
+    }
+  );
 }
 
-const CompanionMessageBubble: React.FC<{ event: CompanionEvent }> = ({ event }) => {
+const CompanionMessageBubble: React.FC<{ event: CompanionEvent }> = ({
+  event,
+}) => {
   const style = getCompanionStyle(event.fromId);
 
   return (
@@ -64,11 +48,11 @@ const CompanionMessageBubble: React.FC<{ event: CompanionEvent }> = ({ event }) 
         <span className="font-medium text-foreground/80">{event.fromName}</span>
         {event.toName && (
           <span className="text-muted-foreground">
-            → {event.toName}
+            {"->"} {event.toName}
           </span>
         )}
       </div>
-      <div className="mt-1 text-xs text-foreground/70 whitespace-pre-wrap">
+      <div className="mt-1 whitespace-pre-wrap text-xs text-foreground/70">
         {event.content}
       </div>
     </div>
@@ -78,13 +62,13 @@ const CompanionMessageBubble: React.FC<{ event: CompanionEvent }> = ({ event }) 
 const CompanionThinking: React.FC<{ event: CompanionEvent }> = ({ event }) => (
   <div className="flex items-center gap-1.5 px-1 py-0.5 text-[11px] text-muted-foreground">
     <span>{event.fromEmoji}</span>
-    <span className="animate-pulse">thinking…</span>
+    <span className="animate-pulse">thinking...</span>
   </div>
 );
 
 const CompanionDone: React.FC<{ event: CompanionEvent }> = ({ event }) => (
   <div className="flex items-center gap-1.5 px-1 py-0.5 text-[11px] text-muted-foreground">
-    <span className="text-green-500">✓</span>
+    <Check className="size-3 text-green-500" />
     <span>{event.fromEmoji}</span>
     <span>{event.fromName} done</span>
   </div>
@@ -110,33 +94,33 @@ const CompanionEventsFeed: React.FC<{
 
   if (companionEvents.length === 0) return null;
 
-  // Collapse: only show the latest Blueberry message
   const latestOrchestratorMessage = [...companionEvents]
     .reverse()
     .find(
-      (e) =>
-        e.type === "companion:message" &&
-        e.fromId === "blueberry",
+      (event) =>
+        event.type === "companion:message" && event.fromId === "blueberry",
     );
 
-  // Deduplicate consecutive thinking events from the same companion
   const deduped: CompanionEvent[] = [];
   for (const event of companionEvents) {
     if (event.type === "companion:thinking") {
-      const prev = deduped[deduped.length - 1];
-      if (prev?.type === "companion:thinking" && prev.fromId === event.fromId) {
-        continue; // skip duplicate thinking
+      const previous = deduped[deduped.length - 1];
+      if (
+        previous?.type === "companion:thinking" &&
+        previous.fromId === event.fromId
+      ) {
+        continue;
       }
     }
     deduped.push(event);
   }
 
   return (
-    <div className="border border-border/40 rounded-lg overflow-hidden bg-background/30">
+    <div className="overflow-hidden rounded-lg border border-border/40 bg-background/30">
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-muted-foreground hover:bg-muted/30 transition-colors"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/30"
       >
         {expanded ? (
           <ChevronDown className="size-3" />
@@ -144,14 +128,23 @@ const CompanionEventsFeed: React.FC<{
           <ChevronRight className="size-3" />
         )}
         <span className="font-medium">
-          Companion reasoning ({companionEvents.filter((e) => e.type === "companion:message").length} messages)
+          Companion reasoning (
+          {
+            companionEvents.filter(
+              (event) => event.type === "companion:message",
+            ).length
+          }{" "}
+          messages)
         </span>
       </button>
 
       {expanded ? (
         <div className="space-y-1.5 px-2.5 pb-2.5">
-          {deduped.map((event, idx) => (
-            <CompanionEventItem key={`${event.fromId}-${event.timestamp}-${idx}`} event={event} />
+          {deduped.map((event, index) => (
+            <CompanionEventItem
+              key={`${event.fromId}-${event.timestamp}-${index}`}
+              event={event}
+            />
           ))}
         </div>
       ) : (
@@ -182,48 +175,44 @@ export const AgentStepFeed: React.FC<AgentStepFeedProps> = ({
     toolEvents.length > 0 || companionEvents.length > 0 || isLoading;
   if (!hasAnything) return null;
 
-  const hasRunningStep = toolEvents.some((e) => e.status === "started");
-  const errorCount = toolEvents.filter((e) => e.status === "error").length;
+  const hasRunningStep = toolEvents.some((event) => event.status === "started");
+  const errorCount = toolEvents.filter(
+    (event) => event.status === "error",
+  ).length;
 
   return (
     <div className="animate-fade-in space-y-2">
-      {/* Companion events */}
       <CompanionEventsFeed companionEvents={companionEvents} />
 
-      {/* Tool step list */}
       {toolEvents.length > 0 && (
-        <div className="border border-border/50 rounded-lg overflow-hidden bg-background/50">
+        <div className="overflow-hidden rounded-lg border border-border/50 bg-background/50">
           <div className="divide-y divide-border/30">
             {toolEvents.map((event) => (
-              <AgentToolStep
-                key={event.callId}
-                event={event}
-              />
+              <AgentToolStep key={event.callId} event={event} />
             ))}
           </div>
 
-          {/* Summary bar */}
           {!hasRunningStep && toolEvents.length > 1 && (
-            <div className="px-2 py-1 text-[10px] text-muted-foreground border-t border-border/30 bg-muted/20">
+            <div className="border-t border-border/30 bg-muted/20 px-2 py-1 text-[10px] text-muted-foreground">
               {toolEvents.length} steps
               {errorCount > 0 && (
-                <span className="text-red-500"> · {errorCount} failed</span>
+                <span className="text-red-500"> | {errorCount} failed</span>
               )}
             </div>
           )}
         </div>
       )}
 
-      {/* Stop button */}
       {isLoading && (
-        <div className="flex justify-center mt-2">
+        <div className="mt-2 flex justify-center">
           <button
+            type="button"
             onClick={onStop}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs",
+              "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs",
               "border border-border/50 text-muted-foreground",
-              "hover:bg-muted/50 hover:text-foreground",
               "transition-colors duration-150",
+              "hover:bg-muted/50 hover:text-foreground",
             )}
           >
             <Square className="size-3" />

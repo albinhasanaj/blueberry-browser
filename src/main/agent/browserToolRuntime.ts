@@ -15,10 +15,13 @@ export type EmitToolEvent = (
 
 export interface BrowserToolDeps {
   getWorkTab: () => Tab;
+  getTabById: (tabId: string) => Tab | null;
   captureScreenshot: () => Promise<string | null>;
   emitToolEvent: EmitToolEvent;
   openTab: (url?: string) => Tab;
   hasWorkTab: () => boolean;
+  activeCompanion?: { id: string; name: string; emoji: string };
+  setActiveCompanion?: (companion: { id: string; name: string; emoji: string }) => void;
 }
 
 export interface BrowserToolContext extends BrowserToolDeps {
@@ -30,6 +33,11 @@ export interface BrowserToolContext extends BrowserToolDeps {
   ) => Promise<void>;
   formatError: (prefix: string, error: unknown) => string;
   navigationWarning: string;
+  /**
+   * Resolve a tab by optional tabId, falling back to the current work tab.
+   * Throws if the tabId is invalid or no work tab exists.
+   */
+  resolveTab: (tabId?: string) => Tab;
 }
 
 const DEFAULT_LOAD_TIMEOUT_MS = 30_000;
@@ -115,6 +123,14 @@ export function createBrowserToolContext(
     autoScreenshot: () => autoScreenshot(deps.captureScreenshot),
     ensureContentScript,
     waitForLoad,
+    resolveTab: (tabId?: string) => {
+      if (tabId) {
+        const tab = deps.getTabById(tabId);
+        if (!tab) throw new Error(`Tab "${tabId}" not found — it may have been closed`);
+        return tab;
+      }
+      return deps.getWorkTab();
+    },
     formatError: (prefix, error) =>
       `${prefix}: ${error instanceof Error ? error.message : String(error)}`,
     navigationWarning: NAVIGATION_WARNING,

@@ -3,15 +3,49 @@ import { loadPrompt } from "../prompts/loadPrompt";
 
 const companions = new Map<string, CompanionDeclaration>();
 
+/** Compose a worker system prompt: companion-specific identity + shared rules */
+function workerPrompt(companionName: string): string {
+  const identity = loadPrompt(`companions/${companionName}`);
+  const shared = loadPrompt("companions/shared-worker-rules")
+    .replaceAll("{{currentDate}}", new Date().toISOString().split("T")[0])
+    .replaceAll(
+      "{{teamRoster}}",
+      [
+        "- Blueberry (`blueberry`, core orchestrator): general browser work, orchestration, synthesis",
+        "- Sally (`sally`, core worker): lead generation, outreach, sales research",
+        "- Camille (`camille`, core worker): competitor analysis, market research, positioning",
+        "- Ella (`ella`, core worker): data extraction, structured scraping, pulling numbers from pages",
+      ].join("\n"),
+    );
+  return identity + "\n\n" + shared;
+}
+
 const BLUEBERRY: CompanionDeclaration = {
   id: "blueberry",
   name: "Blueberry",
   emoji: "🫐",
   role: "orchestrator",
+  source: "core",
+  description:
+    "The browser orchestrator that plans work, delegates to specialists, and synthesizes final answers.",
+  bestFor:
+    "General browser tasks, multi-step orchestration, and synthesizing specialist results.",
+  tags: ["orchestrator", "browser", "synthesis"],
   capabilities: ["synthesis"],
-  toolset: [],
+  toolset: [
+    "read_page",
+    "get_page_text",
+    "find",
+    "click",
+    "type",
+    "press_key",
+    "navigate",
+    "screenshot",
+    "open_tab",
+    "javascript",
+  ],
   systemPrompt: loadPrompt("companions/blueberry"),
-  maxSteps: 10,
+  maxSteps: 30,
   temperature: 0.3,
 };
 
@@ -20,9 +54,16 @@ const SALLY: CompanionDeclaration = {
   name: "Sally",
   emoji: "🍓",
   role: "worker",
+  source: "core",
+  description:
+    "Lead-generation and outreach specialist focused on contacts, prospect lists, and sales research.",
+  bestFor:
+    "Sales prospecting, contact discovery, outreach prep, and lead qualification.",
+  tags: ["sales", "outreach", "prospecting"],
   capabilities: ["lead_generation", "outreach"],
   toolset: [
     "read_page",
+    "get_page_text",
     "find",
     "click",
     "type",
@@ -31,9 +72,10 @@ const SALLY: CompanionDeclaration = {
     "screenshot",
     "open_tab",
     "javascript",
+    "delegate",
   ],
-  systemPrompt: loadPrompt("companions/sally"),
-  maxSteps: 50,
+  systemPrompt: workerPrompt("sally"),
+  maxSteps: 100,
   temperature: 0.6,
 };
 
@@ -42,10 +84,16 @@ const CAMILLE: CompanionDeclaration = {
   name: "Camille",
   emoji: "🔍",
   role: "worker",
+  source: "core",
+  description:
+    "Market and competitor researcher for positioning, landscape analysis, and trend scouting.",
+  bestFor:
+    "Market research, competitor analysis, positioning work, and strategic research tasks.",
+  tags: ["research", "competition", "market"],
   capabilities: ["competitor_analysis", "lead_generation"],
-  toolset: ["read_page", "find", "navigate", "screenshot", "open_tab", "javascript"],
-  systemPrompt: loadPrompt("companions/camille"),
-  maxSteps: 40,
+  toolset: ["read_page", "get_page_text", "find", "navigate", "screenshot", "open_tab", "javascript", "delegate"],
+  systemPrompt: workerPrompt("camille"),
+  maxSteps: 100,
   temperature: 0.5,
 };
 
@@ -54,9 +102,16 @@ const ELLA: CompanionDeclaration = {
   name: "Ella",
   emoji: "📊",
   role: "worker",
+  source: "core",
+  description:
+    "Structured data extraction specialist for scraping lists, metrics, and other page-level facts.",
+  bestFor:
+    "Structured extraction, list scraping, and pulling numbers from websites.",
+  tags: ["scraping", "data", "extraction"],
   capabilities: ["data_extraction", "lead_generation"],
   toolset: [
     "read_page",
+    "get_page_text",
     "find",
     "click",
     "type",
@@ -65,9 +120,10 @@ const ELLA: CompanionDeclaration = {
     "screenshot",
     "javascript",
     "open_tab",
+    "delegate",
   ],
-  systemPrompt: loadPrompt("companions/ella"),
-  maxSteps: 50,
+  systemPrompt: workerPrompt("ella"),
+  maxSteps: 150,
   temperature: 0.7,
 };
 

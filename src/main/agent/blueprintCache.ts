@@ -5,6 +5,7 @@ import {
   pruneStale,
 } from "./blueprintDb";
 import { trace } from "./traceLogger";
+import { loadPromptWithVars } from "./prompts/loadPrompt";
 
 const HIGH_CONFIDENCE = 0.8;
 
@@ -154,8 +155,7 @@ export function formatBlueprintHints(domain: string): string {
   const mid = rows.filter((r) => r.confidence < HIGH_CONFIDENCE).slice(0, 5);
 
   const lines: string[] = [
-    `\n## Known selectors for ${domain}`,
-    "Use these selectors directly when they match your intent. Prefer them over re-discovering.",
+    "\n" + loadPromptWithVars("agent/blueprint-hints", { domain }),
   ];
 
   if (high.length > 0) {
